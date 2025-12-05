@@ -5,6 +5,7 @@ import { defineConfig } from "vite";
 import vueDevTools from "vite-plugin-vue-devtools";
 import vuetify from "vite-plugin-vuetify";
 
+import { viteStaticCopy } from "vite-plugin-static-copy";
 import { clientBrowserConfiguration } from "../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 import packageJson from "./package.json";
 
@@ -24,6 +25,46 @@ export default defineConfig(({ command }) => {
             vue(),
             vuetify({ autoImport: true }),
             vueJsx(),
+            viteStaticCopy({
+                targets: [
+                    {
+                        src: fileURLToPath(
+                            new URL(
+                                "../../node_modules/@ricky0123/vad-web/dist/vad.worklet.bundle.min.js",
+                                import.meta.url,
+                            ),
+                        ),
+                        dest: "vad",
+                    },
+                    {
+                        src: fileURLToPath(
+                            new URL(
+                                "../../node_modules/@ricky0123/vad-web/dist/*.onnx",
+                                import.meta.url,
+                            ),
+                        ),
+                        dest: "vad",
+                    },
+                    {
+                        src: fileURLToPath(
+                            new URL(
+                                "../../node_modules/onnxruntime-web/dist/*.wasm",
+                                import.meta.url,
+                            ),
+                        ),
+                        dest: "vad",
+                    },
+                    {
+                        src: fileURLToPath(
+                            new URL(
+                                "../../node_modules/onnxruntime-web/dist/*.mjs",
+                                import.meta.url,
+                            ),
+                        ),
+                        dest: "vad",
+                    },
+                ],
+            }),
             // Only include Vue DevTools in development
             !isProd && vueDevTools(),
         ].filter(Boolean),

@@ -1,5 +1,5 @@
 <template>
-    <!-- No visual output needed for this component -->
+    <ChatBubble v-if="isModelLoaded && avatarNode" :scene="scene" :avatar-node="avatarNode" :messages="chatData" />
 </template>
 
 <script setup lang="ts">
@@ -24,8 +24,9 @@ import type {
     DebugData,
     DebugWindow,
 } from "@schemas";
-import { AvatarFrameMessageSchema } from "@schemas";
+import { AvatarFrameMessageSchema, type ChatMessage } from "@/schemas";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+import ChatBubble from "./ChatBubble.vue";
 
 // Local helper types (previously from physics controller composable)
 type PositionObj = { x: number; y: number; z: number };
@@ -45,6 +46,11 @@ const props = defineProps({
     jointData: {
         type: Object as () => Map<string, AvatarJointMetadata>,
         required: false,
+    },
+    chatData: {
+        type: Array as () => ChatMessage[],
+        required: false,
+        default: () => [],
     },
 });
 
@@ -505,7 +511,7 @@ function ingestAvatarFrame(raw: unknown) {
 }
 
 // Debug interval
-let debugInterval: number | null = null;
+let debugInterval: ReturnType<typeof setInterval> | null = null;
 
 // Start debug logging
 onMounted(async () => {

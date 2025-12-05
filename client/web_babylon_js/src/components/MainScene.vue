@@ -27,7 +27,9 @@
         :last-camera-poll-timestamps="otherAvatarsRef?.lastCameraPollTimestamps || {}"
         :other-avatars-is-loading="otherAvatarsRef?.areOtherAvatarsLoading"
         :other-avatars-poll-stats="otherAvatarsRef?.discoveryStats"
-        :other-avatar-reflect-stats="otherAvatarsRef?.reflectStats" />
+        :other-avatar-reflect-stats="otherAvatarsRef?.reflectStats" :voice-chat-active="voiceChatInputRef?.sttActive"
+        :voice-chat-processing="voiceChatInputRef?.sttProcessing"
+        :voice-chat-worker-ready="!!(voiceChatInputRef?.vadInstance)" :stt-transcripts="sttTranscripts" />
     <VircadiaWorldProvider v-slot="{ vircadiaWorld, connectionInfo, connectionStatus, isConnecting }">
 
         <VircadiaWorldAuthProvider :vircadia-world="vircadiaWorld"
@@ -61,7 +63,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -96,7 +98,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -134,7 +136,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                            }}</v-icon>
+                                                }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -294,6 +296,9 @@
                                                                                 :scale-update-decimals="3"
                                                                                 @entity-data-loaded="onEntityDataLoaded"
                                                                                 @sync-stats="onAvatarSyncStats" />
+                                                                            <ChatBubble :scene="providedScene"
+                                                                                :avatar-node="avatarNode as TransformNode | null"
+                                                                                :messages="localChatMessages" />
                                                                         </template>
 
                                                                         <!-- Model slot -->
@@ -390,6 +395,7 @@
                                                                                     :position-data="positionDataMap?.[otherFullSessionId]"
                                                                                     :rotation-data="rotationDataMap?.[otherFullSessionId]"
                                                                                     :joint-data="jointDataMap?.[otherFullSessionId]"
+                                                                                    :chat-data="otherAvatarsRef?.chatDataMap?.[otherFullSessionId] || []"
                                                                                     @ready="otherAvatarsRef?.markLoaded && otherAvatarsRef.markLoaded(otherFullSessionId)"
                                                                                     @dispose="otherAvatarsRef?.markDisposed && otherAvatarsRef.markDisposed(otherFullSessionId)" />
 
@@ -438,6 +444,8 @@
                                                 </BabylonTalkLevel>
                                             </template>
                                         </VircadiaCloudInferenceProvider>
+                                        <VoiceChatInput ref="voiceChatInputRef" :vircadia-world="vircadiaWorld"
+                                            :mic-stream="micStream" @message="onChatMessage($event, vircadiaWorld)" />
                                     </template>
                                 </BabylonMic>
                             </template>
@@ -457,6 +465,8 @@
 <script setup lang="ts">
 // BabylonJS types
 import type { TransformNode } from "@babylonjs/core";
+import VoiceChatInput from "@/components/VoiceChatInput.vue";
+import ChatBubble from "@/components/ChatBubble.vue";
 
 import {
     clientBrowserConfiguration,
@@ -510,6 +520,7 @@ import type {
     AvatarJointMetadata,
     AvatarPositionData,
     AvatarRotationData,
+    ChatMessage,
 } from "@/schemas";
 
 // isAutonomousAgent now comes from browser state via URL parameter detection
@@ -584,6 +595,7 @@ const webrtcRef = ref<(ComponentPublicInstance & Partial<WebRTCRefApi>) | null>(
     null,
 );
 const cloudAgentRef = ref<ComponentPublicInstance | null>(null);
+const voiceChatInputRef = ref<InstanceType<typeof VoiceChatInput> | null>(null);
 
 const webrtcApi = computed<WebRTCRefApi | null>(() =>
     webrtcRef.value
@@ -685,6 +697,50 @@ const agentUiMaxConversationItems = ref<number>(0);
 
 // Audio device list passed to BabylonMyAvatar (placeholder; wire to WebRTC if needed)
 const audioDevices = ref<{ deviceId: string; label: string }[]>([]);
+
+// Chat state
+const localChatMessages = ref<ChatMessage[]>([]);
+const sttTranscripts = ref<string[]>([]);
+
+// We need to change handleChatMessage signature to accept vircadiaWorld
+async function onChatMessage(text: string, vircadiaWorld: any) {
+    if (!text.trim() || !vircadiaWorld) return;
+
+    const message: ChatMessage = {
+        id: crypto.randomUUID(),
+        text: text.trim(),
+        timestamp: Date.now(),
+    };
+
+    localChatMessages.value = [...localChatMessages.value, message].slice(-20);
+    sttTranscripts.value = [text.trim(), ...sttTranscripts.value].slice(0, 50);
+
+    const fullSessionId = vircadiaWorld.connectionInfo.value.fullSessionId;
+    if (!fullSessionId) return;
+    const entityName = `avatar:${fullSessionId}`;
+
+    try {
+        // 1. Update DB
+        await vircadiaWorld.client.connection.query({
+            query: "INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__jsonb) VALUES ($1, $2, $3) ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__jsonb = EXCLUDED.metadata__jsonb",
+            parameters: [entityName, "chat_messages", { messages: localChatMessages.value }],
+        });
+
+        // 2. Publish Reflect
+        await vircadiaWorld.client.connection.publishReflect({
+            syncGroup: "public.REALTIME",
+            channel: "avatar_data",
+            payload: {
+                type: "avatar_frame",
+                entityName: entityName,
+                ts: Date.now(),
+                chat_messages: localChatMessages.value,
+            },
+        });
+    } catch (e) {
+        console.warn("[MainScene] Failed to send chat message:", e);
+    }
+}
 
 onMounted(async () => {
     console.debug("[MainScene] Initialized");

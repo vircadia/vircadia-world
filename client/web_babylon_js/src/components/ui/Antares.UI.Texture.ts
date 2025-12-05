@@ -46,7 +46,9 @@ export function createBaseMaterial(
 }
 
 
-export type HolographicMaterialVariant = "fill" | "glass";
+import type { BaseTexture } from "@babylonjs/core";
+
+export type HolographicMaterialVariant = "fill" | "glass" | "track" | "thumb";
 
 export interface HolographicMaterialOptions {
     variant?: HolographicMaterialVariant;
@@ -55,6 +57,12 @@ export interface HolographicMaterialOptions {
     alpha?: number;
     hoverEffect?: boolean;
     reflectionLevel?: number;
+    refractionLevel?: number;
+    refractionIndex?: number;
+    noiseTexture?: BaseTexture;
+    noiseTextureLevel?: number;
+    gradientTexture?: BaseTexture;
+    gradientTextureLevel?: number;
 }
 
 export function createHolographicMaterial(

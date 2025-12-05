@@ -1,6 +1,7 @@
 <template>
     <slot :other-avatar-session-ids="otherAvatarSessionIds" :avatar-data-map="avatarDataMap"
-        :position-data-map="positionDataMap" :rotation-data-map="rotationDataMap" :joint-data-map="jointDataMap" />
+        :position-data-map="positionDataMap" :rotation-data-map="rotationDataMap" :joint-data-map="jointDataMap"
+        :chat-data-map="chatDataMap" />
 </template>
 
 <script setup lang="ts">
@@ -15,7 +16,9 @@ import {
     parseAvatarJoint,
     parseAvatarPosition,
     parseAvatarRotation,
-} from "@schemas";
+    ChatEntityMetadataSchema,
+    type ChatMessage,
+} from "@/schemas";
 import { useInterval } from "@vueuse/core";
 import { computed, onMounted, onUnmounted, ref, toRefs, watch } from "vue";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
@@ -52,7 +55,9 @@ const otherAvatarSessionIds = ref<string[]>([]);
 const avatarDataMap = ref<Record<string, AvatarBaseData>>({});
 const positionDataMap = ref<Record<string, AvatarPositionData>>({});
 const rotationDataMap = ref<Record<string, AvatarRotationData>>({});
+
 const jointDataMap = ref<Record<string, Map<string, AvatarJointMetadata>>>({});
+const chatDataMap = ref<Record<string, ChatMessage[]>>({});
 
 // Delivery timestamps for debug
 const lastPollTimestamps = ref<Record<string, Date | null>>({});
@@ -247,6 +252,10 @@ function subscribeReflect(): void {
                     }
                 }
 
+                if (frame.chat_messages) {
+                    chatDataMap.value[target] = frame.chat_messages;
+                }
+
                 // Update base (camera) and generic timestamps
                 if (frame.cameraOrientation)
                     lastCameraPollTimestamps.value[target] = new Date();
@@ -285,6 +294,8 @@ function initializeSessionDefaults(sessionId: string): void {
         } as AvatarRotationData;
     if (!jointDataMap.value[sessionId])
         jointDataMap.value[sessionId] = new Map<string, AvatarJointMetadata>();
+    if (!chatDataMap.value[sessionId])
+        chatDataMap.value[sessionId] = [];
     if (!lastPollTimestamps.value[sessionId])
         lastPollTimestamps.value[sessionId] = null;
     if (!lastBasePollTimestamps.value[sessionId])
@@ -303,7 +314,7 @@ async function backfillSessionFromMetadata(sessionId: string): Promise<void> {
     try {
         const entityName = `avatar:${sessionId}`;
         const result = await vircadiaWorld.client.connection.query({
-            query: "SELECT m.metadata__key, m.metadata__jsonb FROM entity.entity_metadata AS m JOIN entity.entities AS e ON e.general__entity_name = m.general__entity_name WHERE m.general__entity_name = $1 AND e.group__sync = $2 AND m.metadata__key IN ('type','sessionId','modelFileName','position','rotation','scale','cameraOrientation','joints','avatar_snapshot')",
+            query: "SELECT m.metadata__key, m.metadata__jsonb FROM entity.entity_metadata AS m JOIN entity.entities AS e ON e.general__entity_name = m.general__entity_name WHERE m.general__entity_name = $1 AND e.group__sync = $2 AND m.metadata__key IN ('type','sessionId','modelFileName','position','rotation','scale','cameraOrientation','joints','avatar_snapshot','chat_messages')",
             parameters: [entityName, props.entitySyncGroup],
             timeoutMs: 5000,
         });
@@ -358,6 +369,14 @@ async function backfillSessionFromMetadata(sessionId: string): Promise<void> {
                     | null;
                 if (parsed)
                     jointDataMap.value[sessionId].set(jointName, parsed);
+            }
+        }
+
+        const chatPayload = keyToValue.get("chat_messages");
+        if (chatPayload) {
+            const parsed = ChatEntityMetadataSchema.safeParse({ messages: chatPayload });
+            if (parsed.success) {
+                chatDataMap.value[sessionId] = parsed.data.messages;
             }
         }
 
@@ -466,6 +485,7 @@ defineExpose({
     positionDataMap,
     rotationDataMap,
     jointDataMap,
+    chatDataMap,
     discoveryStats,
     reflectStats,
     lastPollTimestamps,

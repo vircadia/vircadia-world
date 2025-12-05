@@ -307,6 +307,23 @@ export const PeerDiscoveryEntitySchema = z.object({
 
 export type PeerDiscoveryEntity = z.infer<typeof PeerDiscoveryEntitySchema>;
 
+// Chat schemas
+export const ChatMessageSchema = z.object({
+    id: z.string(),
+    text: z.string(),
+    timestamp: z.number(),
+    originalMessage: z.string().optional(),
+    editedMessage: z.string().optional(),
+});
+
+export type ChatMessage = z.infer<typeof ChatMessageSchema>;
+
+export const ChatEntityMetadataSchema = z.object({
+    messages: z.array(ChatMessageSchema).default([]),
+});
+
+export type ChatEntityMetadata = z.infer<typeof ChatEntityMetadataSchema>;
+
 // Helper functions for WebRTC entity naming
 export const createWebRTCSessionEntityName = (
     session1: string,
@@ -390,6 +407,7 @@ export const AvatarFrameMessageSchema = z
         scale: Vector3Schema.optional(),
         cameraOrientation: CameraSchema.optional(),
         joints: AvatarJointsSchema.optional().default({}),
+        chat_messages: z.array(ChatMessageSchema).optional(),
     })
     .loose();
 

@@ -6,6 +6,7 @@
             <v-tab value="physics" prepend-icon="mdi-atom-variant">Physics</v-tab>
             <v-tab value="avatar" prepend-icon="mdi-account">Avatar</v-tab>
             <v-tab value="otherAvatars" prepend-icon="mdi-account-group">Other Avatars</v-tab>
+            <v-tab value="debug" prepend-icon="mdi-bug">Debug</v-tab>
         </v-tabs>
         <v-divider />
         <v-window v-model="tabModel">
@@ -581,6 +582,45 @@
                     </v-window>
                 </div>
             </v-window-item>
+            <v-window-item value="debug">
+                <v-list density="compact" class="px-2">
+                    <v-list-subheader>Voice Chat (VAD/STT)</v-list-subheader>
+                    <v-list-item>
+                        <v-list-item-title>VAD Active (Listening)</v-list-item-title>
+                        <template #append>
+                            <v-chip :color="voiceChatActive ? 'success' : 'grey'" size="small" variant="flat">
+                                {{ String(voiceChatActive) }}
+                            </v-chip>
+                        </template>
+                    </v-list-item>
+                    <v-list-item>
+                        <v-list-item-title>STT Processing</v-list-item-title>
+                        <template #append>
+                            <v-chip :color="voiceChatProcessing ? 'warning' : 'grey'" size="small" variant="flat">
+                                {{ String(voiceChatProcessing) }}
+                            </v-chip>
+                        </template>
+                    </v-list-item>
+                    <v-list-item>
+                        <v-list-item-title>VAD Worker Ready</v-list-item-title>
+                        <template #append>
+                            <v-chip :color="voiceChatWorkerReady ? 'success' : 'error'" size="small" variant="flat">
+                                {{ String(voiceChatWorkerReady) }}
+                            </v-chip>
+                        </template>
+                    </v-list-item>
+                </v-list>
+                <v-divider class="my-2" />
+                <v-list density="compact" class="px-2">
+                    <v-list-subheader>STT Transcripts</v-list-subheader>
+                    <div v-if="sttTranscripts.length === 0" class="text-caption px-4 text-grey">No transcripts yet</div>
+                    <div v-else class="text-caption px-2">
+                        <div v-for="(text, i) in sttTranscripts" :key="i" class="mb-1 pa-1 bg-grey-lighten-4 rounded">
+                            {{ text }}
+                        </div>
+                    </div>
+                </v-list>
+            </v-window-item>
         </v-window>
     </v-navigation-drawer>
 </template>
@@ -641,6 +681,11 @@ const props = defineProps({
     otherAvatarsIsLoading: { type: Boolean, default: false },
     otherAvatarsPollStats: { type: Object, default: undefined },
     otherAvatarReflectStats: { type: Object, default: undefined },
+    // Voice Chat Debug Props
+    voiceChatActive: { type: Boolean, default: false },
+    voiceChatProcessing: { type: Boolean, default: false },
+    voiceChatWorkerReady: { type: Boolean, default: false },
+    sttTranscripts: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(["update:open", "update:tab"]);

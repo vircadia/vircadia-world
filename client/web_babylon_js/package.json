@@ -33,7 +33,9 @@
         "vue-router": "catalog:vue",
         "vuetify": "catalog:vue",
         "zod": "catalog:",
-        "simplex-noise": "catalog:babylon"
+        "simplex-noise": "catalog:babylon",
+        "@ricky0123/vad-web": "^0.0.30",
+        "onnxruntime-web": "^1.22.0"
     },
     "devDependencies": {
         "@mdi/font": "catalog:ui",
@@ -48,6 +50,7 @@
         "typescript": "catalog:",
         "vite": "catalog:dev",
         "vite-plugin-vue-devtools": "catalog:dev",
+        "vite-plugin-static-copy": "^2.2.0",
         "vue-tsc": "catalog:dev"
     },
     "optionalDependencies": {

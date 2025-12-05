@@ -19,7 +19,7 @@
         "@babylonjs/inspector": "catalog:babylon",
         "@babylonjs/loaders": "catalog:babylon",
         "@babylonjs/materials": "catalog:babylon",
-        "babylonjs-addons": "catalog:babylon",
+        "@babylonjs/addons": "catalog:babylon",
         "earcut": "catalog:babylon",
         "@huggingface/transformers": "catalog:ml",
         "@vircadia/world-sdk": "workspace:*",

@@ -63,7 +63,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -98,7 +98,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -136,7 +136,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                            }}</v-icon>
+                                                }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -408,8 +408,8 @@
                                                                                     :client="vircadiaWorld"
                                                                                     :avatar-data="new Map(Object.entries((avatarDataMap as Record<string, AvatarBaseData>) || {}))"
                                                                                     :avatar-positions="new Map(Object.entries((positionDataMap as Record<string, AvatarPositionData>) || {}))"
-                                                                                    :my-position="null"
-                                                                                    :my-camera-orientation="null"
+                                                                                    :my-position="audioListenerPosition"
+                                                                                    :my-camera-orientation="audioListenerOrientation"
                                                                                     :webrtc-sync-group="'public.NORMAL'"
                                                                                     @permissions="onWebRTCPermissions($event)"
                                                                                     v-model:local-audio-stream="webrtcLocalStream"
@@ -601,6 +601,38 @@ const webrtcRef = ref<(ComponentPublicInstance & Partial<WebRTCRefApi>) | null>(
 );
 const cloudAgentRef = ref<ComponentPublicInstance | null>(null);
 const voiceChatInputRef = ref<InstanceType<typeof VoiceChatInput> | null>(null);
+
+// Spatial Audio State
+const audioListenerPosition = ref<AvatarPositionData | null>(null);
+const audioListenerOrientation = ref<{
+    alpha: number;
+    beta: number;
+    radius: number;
+} | null>(null);
+
+function updateSpatialAudioPosition() {
+    // Update camera orientation
+    if (canvasComponentRef.value?.scene?.activeCamera) {
+        const cam = canvasComponentRef.value.scene.activeCamera as any; // Cast to access alpha/beta if arc rotate
+        if (cam.alpha !== undefined && cam.beta !== undefined) {
+            audioListenerOrientation.value = {
+                alpha: cam.alpha,
+                beta: cam.beta,
+                radius: cam.radius || 10,
+            };
+        }
+    }
+
+    // Update avatar position
+    if (avatarRef.value?.avatarNode?.position) {
+        const pos = avatarRef.value.avatarNode.position;
+        audioListenerPosition.value = {
+            x: pos.x,
+            y: pos.y,
+            z: pos.z
+        };
+    }
+}
 
 const webrtcApi = computed<WebRTCRefApi | null>(() =>
     webrtcRef.value
@@ -795,6 +827,11 @@ const sceneReady = computed(
 watch(sceneReady, (isReady) => {
     if (isReady) {
         clientBrowserState.setSceneReady(true);
+
+        // Hook into render loop for spatial audio updates
+        canvasComponentRef.value?.scene?.onAfterRenderObservable.add(() => {
+            updateSpatialAudioPosition();
+        });
     }
 });
 

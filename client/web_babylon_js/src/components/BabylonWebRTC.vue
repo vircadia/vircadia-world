@@ -17,6 +17,26 @@
 
                 <v-divider class="my-4" />
 
+                <div class="text-subtitle-2 mb-2">My Spatial Audio Listener</div>
+                <div v-if="spatialAudio.listenerDebug.value"
+                    class="text-caption text-grey-darken-1 mb-4 border pa-2 rounded-lg bg-grey-lighten-4">
+                    <div class="d-flex justify-space-between">
+                        <strong>State: {{ spatialAudio.listenerDebug.value.state }}</strong>
+                    </div>
+                    <div class="mt-1"><strong>Position:</strong> ({{
+                        spatialAudio.listenerDebug.value.position.x.toFixed(2) }}, {{
+                            spatialAudio.listenerDebug.value.position.y.toFixed(2) }}, {{
+                            spatialAudio.listenerDebug.value.position.z.toFixed(2) }})</div>
+                    <div><strong>Forward:</strong> ({{ spatialAudio.listenerDebug.value.forward.x.toFixed(2) }}, {{
+                        spatialAudio.listenerDebug.value.forward.y.toFixed(2) }}, {{
+                            spatialAudio.listenerDebug.value.forward.z.toFixed(2) }})</div>
+                    <div><strong>Up:</strong> ({{ spatialAudio.listenerDebug.value.up.x.toFixed(2) }}, {{
+                        spatialAudio.listenerDebug.value.up.y.toFixed(2) }}, {{
+                            spatialAudio.listenerDebug.value.up.z.toFixed(2) }})</div>
+                </div>
+                <div v-else class="text-caption text-grey mb-4">Listener not initialized</div>
+
+
                 <div class="text-subtitle-2 mb-2">
                     Connected Peers ({{ peers.size }})
                 </div>
@@ -274,6 +294,36 @@
                                     </v-list-item-title>
                                 </v-list-item>
 
+                                <!-- Spatial Audio Details -->
+                                <v-list-item v-if="spatialAudio.getPeerSpatialDebug(peerId)">
+                                    <v-list-item-title class="text-caption">
+                                        <strong>Spatial Audio Debug:</strong>
+                                        <div class="ml-2 mt-1 py-1 px-2 bg-grey-lighten-4 rounded border">
+                                            <div><strong>Panner Position:</strong> ({{
+                                                spatialAudio.getPeerSpatialDebug(peerId)?.position.x.toFixed(2) }}, {{
+                                                    spatialAudio.getPeerSpatialDebug(peerId)?.position.y.toFixed(2) }}, {{
+                                                    spatialAudio.getPeerSpatialDebug(peerId)?.position.z.toFixed(2) }})
+                                            </div>
+                                            <div><strong>Distance Data:</strong> {{
+                                                spatialAudio.getPeerSpatialDebug(peerId)?.distance.toFixed(2) }}m</div>
+                                            <div class="d-flex flex-wrap mt-1">
+                                                <v-chip size="x-small" label class="mr-1 mb-1">{{
+                                                    spatialAudio.getPeerSpatialDebug(peerId)?.panningModel }}</v-chip>
+                                                <v-chip size="x-small" label class="mr-1 mb-1">{{
+                                                    spatialAudio.getPeerSpatialDebug(peerId)?.distanceModel }}</v-chip>
+                                                <span class="mr-2 text-xs">Ref: {{
+                                                    spatialAudio.getPeerSpatialDebug(peerId)?.refDistance
+                                                    }}</span>
+                                                <span class="mr-2 text-xs">Max: {{
+                                                    spatialAudio.getPeerSpatialDebug(peerId)?.maxDistance
+                                                    }}</span>
+                                                <span class="text-xs">Roll: {{
+                                                    spatialAudio.getPeerSpatialDebug(peerId)?.rolloffFactor }}</span>
+                                            </div>
+                                        </div>
+                                    </v-list-item-title>
+                                </v-list-item>
+
                                 <!-- Debug Information -->
                                 <v-list-item>
                                     <v-list-item-title class="text-caption">
@@ -332,7 +382,8 @@
                                             :key="sender.track?.id || 'no-track'" class="ml-2">
                                             <v-chip size="x-small" :color="sender.track?.enabled ? 'success' : 'error'"
                                                 variant="flat">
-                                                {{ sender.track?.kind || 'unknown' }}: {{ sender.track?.readyState ||
+                                                {{ sender.track?.kind || 'unknown' }}: {{ sender.track?.readyState
+                                                    ||
                                                     'no-track' }}
                                                 {{ sender.track?.enabled ? '' : '(disabled)' }}
                                             </v-chip>
@@ -348,7 +399,8 @@
                                             <v-chip size="x-small"
                                                 :color="receiver.track?.readyState === 'live' ? 'success' : 'error'"
                                                 variant="flat">
-                                                {{ receiver.track?.kind || 'unknown' }}: {{ receiver.track?.readyState
+                                                {{ receiver.track?.kind || 'unknown' }}: {{
+                                                    receiver.track?.readyState
                                                     ||
                                                     'no-track' }}
                                             </v-chip>
@@ -366,7 +418,8 @@
                                                 variant="flat">
                                                 {{ index + 1 }}: {{ transceiver.mid || 'no-mid' }}
                                                 ({{ transceiver.direction }})
-                                                {{ transceiver.currentDirection ? `→ ${transceiver.currentDirection}` :
+                                                {{ transceiver.currentDirection ? `→
+                                                ${transceiver.currentDirection}` :
                                                     ''
                                                 }}
                                             </v-chip>
@@ -566,6 +619,26 @@ interface AudioAnalysisData {
     source: MediaStreamAudioSourceNode;
     level: number;
 }
+
+interface ListenerDebugInfo {
+    position: { x: number; y: number; z: number };
+    forward: { x: number; y: number; z: number };
+    up: { x: number; y: number; z: number };
+    state: string;
+}
+
+interface PeerSpatialDebugInfo {
+    position: { x: number; y: number; z: number };
+    panningModel: PanningModelType;
+    distanceModel: DistanceModelType;
+    refDistance: number;
+    maxDistance: number;
+    rolloffFactor: number;
+    coneInnerAngle: number;
+    coneOuterAngle: number;
+    distance: number;
+}
+
 
 // Zod Schema for SignalingMessage (description or candidate)
 const SignalingMessageSchema = z.object({
@@ -829,6 +902,11 @@ function useWebRTCSpatialAudio(
     const peerAudioNodes = ref(new Map<string, PeerAudioNode>());
     const isInitialized = ref(false);
 
+    // Debug Refs
+    const listenerDebug = ref<ListenerDebugInfo | null>(null);
+    const peerSpatialDebug = ref(new Map<string, PeerSpatialDebugInfo>());
+
+
     // Default spatial audio settings
     const settings = {
         refDistance: options.refDistance ?? 1,
@@ -978,6 +1056,13 @@ function useWebRTCSpatialAudio(
                     up.z,
                 );
             }
+            // Update debug info
+            listenerDebug.value = {
+                position: { ...pos },
+                forward: { ...forward },
+                up: { ...up },
+                state: audioContext.value.state
+            };
         } catch (error) {
             console.error(
                 "[SpatialAudio] Failed to update listener position:",
@@ -1104,6 +1189,26 @@ function useWebRTCSpatialAudio(
             } else {
                 panner.setPosition?.(pos.x, pos.y, pos.z);
             }
+
+            // Update debug info
+            const distance = Math.sqrt(
+                Math.pow(pos.x - (listenerDebug.value?.position.x ?? 0), 2) +
+                Math.pow(pos.y - (listenerDebug.value?.position.y ?? 0), 2) +
+                Math.pow(pos.z - (listenerDebug.value?.position.z ?? 0), 2)
+            );
+
+            peerSpatialDebug.value.set(peerId, {
+                position: { ...pos },
+                panningModel: panner.panningModel,
+                distanceModel: panner.distanceModel,
+                refDistance: panner.refDistance,
+                maxDistance: panner.maxDistance,
+                rolloffFactor: panner.rolloffFactor,
+                coneInnerAngle: panner.coneInnerAngle,
+                coneOuterAngle: panner.coneOuterAngle,
+                distance
+            });
+
         } catch (error) {
             console.error(
                 `[SpatialAudio] Failed to update position for peer ${peerId}:`,
@@ -1270,7 +1375,13 @@ function useWebRTCSpatialAudio(
         // Analysis helpers
         getAudioContext,
         getPeerNode,
+
+        // Debug
+        listenerDebug,
+        peerSpatialDebug,
+        getPeerSpatialDebug: (peerId: string) => peerSpatialDebug.value.get(peerId),
     };
+
 }
 
 // Spatial Audio Instance

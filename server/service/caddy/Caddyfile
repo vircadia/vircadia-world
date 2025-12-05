@@ -6,28 +6,19 @@
   {$CADDY_TLS_API}
   encode zstd gzip
 
-  # Route REST auth, REST WS, and REST asset subpaths to their managers
+  # 1. Handle API requests
+  handle /world/rest/* {
+    reverse_proxy /world/rest/ws* http://{$CADDY_UPSTREAM_API_WS}
+    reverse_proxy /world/rest/auth* http://{$CADDY_UPSTREAM_API_AUTH}
+    reverse_proxy /world/rest/asset* http://{$CADDY_UPSTREAM_API_ASSET}
+    reverse_proxy /world/rest/inference* http://{$CADDY_UPSTREAM_API_INFERENCE}
+  }
 
-  @rest_ws path /world/rest/ws*
-  reverse_proxy @rest_ws http://{$CADDY_UPSTREAM_API_WS}
-
-  @rest_auth path /world/rest/auth*
-  reverse_proxy @rest_auth http://{$CADDY_UPSTREAM_API_AUTH}
-
-  @rest_asset path /world/rest/asset*
-  reverse_proxy @rest_asset http://{$CADDY_UPSTREAM_API_ASSET}
-
-  @rest_inference path /world/rest/inference*
-  reverse_proxy @rest_inference http://{$CADDY_UPSTREAM_API_INFERENCE}
+  # 2. Handle everything else (Client App)
+  handle {
+    root * /srv/app
+    try_files {path} /index.html
+    file_server
+  }
 }
 
-{$CADDY_DOMAIN_APP} {
-  bind 0.0.0.0
-  {$CADDY_TLS_APP}
-  encode zstd gzip
-
-  # Serve the app directly
-  root * /srv/app
-  file_server
-  try_files {path} /index.html
-}

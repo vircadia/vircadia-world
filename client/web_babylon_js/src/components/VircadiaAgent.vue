@@ -4,7 +4,10 @@
 
 <script setup lang="ts">
 import {
+    ActionManager,
     Color3,
+    ExecuteCodeAction,
+    HighlightLayer,
     Matrix,
     Mesh,
     MeshBuilder,
@@ -17,6 +20,15 @@ import {
     TransformNode,
     Vector3,
 } from "@babylonjs/core";
+import {
+    AdvancedDynamicTexture,
+    Button,
+    Control,
+    Ellipse,
+    Rectangle,
+    StackPanel,
+    TextBlock,
+} from "@babylonjs/gui";
 import { onMounted, onUnmounted, type Ref, ref } from "vue";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
@@ -55,7 +67,12 @@ const props = defineProps({
     agentSttWorking: { type: Boolean, required: true },
     agentTtsWorking: { type: Boolean, required: true },
     agentLlmWorking: { type: Boolean, required: true },
+    active: { type: Boolean, required: true },
 });
+
+const emit = defineEmits<{
+    (e: "update:active", value: boolean): void;
+}>();
 
 // Node and controller
 const agentRoot: Ref<TransformNode | null> = ref(null);
@@ -72,10 +89,16 @@ const llmStatusMesh: Ref<Mesh | null> = ref(null);
 const sttStatusMaterial: Ref<StandardMaterial | null> = ref(null);
 const ttsStatusMaterial: Ref<StandardMaterial | null> = ref(null);
 const llmStatusMaterial: Ref<StandardMaterial | null> = ref(null);
+const statusLabelTexture: Ref<TextBlock | null> = ref(null);
 // Simple hover effect
 let hoverPhase = 0;
 // Wave bounce animation phase
 let wavePhase = 0;
+
+// Interaction State
+const highlightLayer: Ref<HighlightLayer | null> = ref(null);
+const uiTexture: Ref<AdvancedDynamicTexture | null> = ref(null);
+const uiPanel: Ref<Rectangle | null> = ref(null);
 
 const STATUS_INDICATOR_Y = -0.8;
 const FOLLOW_SNAP_DISTANCE = 4.0;
@@ -180,6 +203,39 @@ function createAgentGeometry(scene: Scene, root: TransformNode): void {
     bodyMat.specularColor = new Color3(0.95, 0.95, 1.0); // silver specular for metallic sheen
     body.material = bodyMat;
     body.setParent(root);
+
+    // Interaction: Hover & Click
+    body.actionManager = new ActionManager(scene);
+
+    // Ensure HighlightLayer exists
+    let hl = scene.getHighlightLayerByName("agentHighlight");
+    if (!hl) {
+        hl = new HighlightLayer("agentHighlight", scene);
+    }
+    highlightLayer.value = hl;
+
+    // Hover: Add/Remove from HighlightLayer
+    body.actionManager.registerAction(
+        new ExecuteCodeAction(ActionManager.OnPointerOverTrigger, () => {
+            if (highlightLayer.value && body) {
+                highlightLayer.value.addMesh(body, Color3.White());
+            }
+        })
+    );
+    body.actionManager.registerAction(
+        new ExecuteCodeAction(ActionManager.OnPointerOutTrigger, () => {
+            if (highlightLayer.value && body) {
+                highlightLayer.value.removeMesh(body);
+            }
+        })
+    );
+
+    // Click: Toggle UI
+    body.actionManager.registerAction(
+        new ExecuteCodeAction(ActionManager.OnPickTrigger, () => {
+            toggleUI(scene);
+        })
+    );
 
     // Attachments (scaled to half, adjusted for new body)
     const finLeft = MeshBuilder.CreateBox(
@@ -311,6 +367,101 @@ function createAgentGeometry(scene: Scene, root: TransformNode): void {
     llmStatus.setParent(root);
     llmStatusMesh.value = llmStatus;
     llmStatusMaterial.value = llmMat;
+    llmStatusMaterial.value = llmMat;
+}
+
+function toggleUI(scene: Scene) {
+    if (!uiTexture.value) {
+        createUI(scene);
+    }
+    if (uiPanel.value) {
+        uiPanel.value.isVisible = !uiPanel.value.isVisible;
+    }
+}
+
+function createUI(scene: Scene) {
+    const ui = AdvancedDynamicTexture.CreateFullscreenUI("agentUI", true, scene);
+    uiTexture.value = ui;
+
+    const panel = new Rectangle();
+    panel.width = "300px";
+    panel.height = "200px";
+    panel.cornerRadius = 20;
+    panel.color = "white";
+    panel.thickness = 2;
+    panel.background = "rgba(0, 0, 0, 0.8)";
+    ui.addControl(panel);
+    uiPanel.value = panel;
+
+    const stack = new StackPanel();
+    panel.addControl(stack);
+
+    const title = new TextBlock();
+    title.text = "Agent Controls";
+    title.color = "white";
+    title.fontSize = "24px";
+    title.height = "50px";
+    stack.addControl(title);
+
+    // Active Switch Row
+    const row = new StackPanel();
+    row.isVertical = false;
+    row.height = "60px";
+    row.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    stack.addControl(row);
+
+    const label = new TextBlock();
+    label.text = "Active";
+    label.color = "white";
+    label.fontSize = "18px";
+    label.width = "80px";
+    label.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    label.paddingRight = "10px";
+    row.addControl(label);
+
+    // Custom Switch Control
+    const switchContainer = new Rectangle();
+    switchContainer.width = "60px";
+    switchContainer.height = "30px";
+    switchContainer.cornerRadius = 15;
+    switchContainer.color = "white";
+    switchContainer.thickness = 2;
+    switchContainer.background = props.active ? "#4CAF50" : "#B0BEC5";
+    switchContainer.isPointerBlocker = true;
+    row.addControl(switchContainer);
+
+    const switchKnob = new Ellipse();
+    switchKnob.width = "26px";
+    switchKnob.height = "26px";
+    switchKnob.color = "white";
+    switchKnob.thickness = 0;
+    switchKnob.background = "white";
+    switchKnob.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    switchKnob.left = props.active ? "32px" : "2px";
+    switchContainer.addControl(switchKnob);
+
+    // Toggle Logic
+    switchContainer.onPointerUpObservable.add(() => {
+        const newValue = !props.active;
+        emit("update:active", newValue);
+
+        // Animate UI update
+        switchContainer.background = newValue ? "#4CAF50" : "#B0BEC5";
+        switchKnob.left = newValue ? "32px" : "2px";
+    });
+
+    // Close button
+    const closeBtn = Button.CreateSimpleButton("closeBtn", "Close");
+    closeBtn.width = "100px";
+    closeBtn.height = "40px";
+    closeBtn.color = "white";
+    closeBtn.background = "#D32F2F";
+    closeBtn.cornerRadius = 10;
+    closeBtn.top = "20px";
+    closeBtn.onPointerUpObservable.add(() => {
+        panel.isVisible = false;
+    });
+    stack.addControl(closeBtn);
 }
 
 function getAgentPosition(): Vector3 | undefined {
@@ -458,6 +609,30 @@ function disposeAgent(): void {
     }
     llmStatusMesh.value = null;
 
+    // Dispose UI
+    try {
+        uiTexture.value?.dispose();
+    } catch {
+        /* no-op */
+    }
+    uiTexture.value = null;
+    uiPanel.value = null;
+
+    try {
+        statusLabelTexture.value?.dispose();
+    } catch {
+        /* no-op */
+    }
+    statusLabelTexture.value = null;
+
+    // Dispose HighlightLayer
+    try {
+        highlightLayer.value?.dispose();
+    } catch {
+        /* no-op */
+    }
+    highlightLayer.value = null;
+
     // Dispose agent root and children
     try {
         agentRoot.value?.dispose(false, true);
@@ -494,6 +669,21 @@ function initAgent(scene: Scene | null | undefined): void {
             }
         }, 100);
     }
+
+    // Status Label (floating text above agent)
+    const labelPlane = MeshBuilder.CreatePlane("statusLabel", { width: 0.5, height: 0.2 }, scene);
+    labelPlane.position = new Vector3(0, 0.4, 0);
+    labelPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    labelPlane.setParent(root);
+
+    const labelTexture = AdvancedDynamicTexture.CreateForMesh(labelPlane, 512, 256);
+    const labelText = new TextBlock();
+    labelText.text = "";
+    labelText.color = "#F44336";
+    labelText.fontSize = 100;
+    labelText.fontWeight = "bold";
+    labelTexture.addControl(labelText);
+    statusLabelTexture.value = labelText;
 
     // Hook frame updates
     let lastT = performance.now();
@@ -540,32 +730,58 @@ function initAgent(scene: Scene | null | undefined): void {
             bottomGlowMaterial.value.emissiveColor = baseGlow.scale(Math.min(2.0, smoothedGlow));
         }
 
+        // Update Status Label
+        if (statusLabelTexture.value) {
+            if (props.active) {
+                statusLabelTexture.value.text = "";
+            } else {
+                statusLabelTexture.value.text = "Inactive";
+                statusLabelTexture.value.color = "#F44336"; // Red
+                statusLabelTexture.value.fontSize = 100; // Smaller font
+            }
+        }
+
         // Update capability status indicators
         const isLlmOrTtsWorking = props.agentLlmWorking || props.agentTtsWorking;
-        if (isLlmOrTtsWorking) {
+        if (isLlmOrTtsWorking && props.active) {
             wavePhase += dt * 8.0; // Wave animation speed
         } else {
             wavePhase = 0; // Reset phase when not working
         }
 
         if (sttStatusMaterial.value) {
-            const enabled = props.agentSttEnabled;
-            sttStatusMaterial.value.emissiveColor = enabled ? new Color3(0.9, 0.5, 0.2) : new Color3(0.3, 0.3, 0.3);
-            sttStatusMaterial.value.alpha = enabled ? 1.0 : 0.3;
+            if (!props.active) {
+                sttStatusMaterial.value.emissiveColor = new Color3(1, 0, 0); // Red when inactive
+                sttStatusMaterial.value.alpha = 1.0;
+            } else {
+                const enabled = props.agentSttEnabled;
+                sttStatusMaterial.value.emissiveColor = enabled ? new Color3(0.9, 0.5, 0.2) : new Color3(0.3, 0.3, 0.3);
+                sttStatusMaterial.value.alpha = enabled ? 1.0 : 0.3;
+            }
         }
         if (ttsStatusMaterial.value) {
-            const enabled = props.agentTtsEnabled;
-            ttsStatusMaterial.value.emissiveColor = enabled ? new Color3(0.2, 0.9, 0.5) : new Color3(0.3, 0.3, 0.3);
-            ttsStatusMaterial.value.alpha = enabled ? 1.0 : 0.3;
+            if (!props.active) {
+                ttsStatusMaterial.value.emissiveColor = new Color3(1, 0, 0); // Red when inactive
+                ttsStatusMaterial.value.alpha = 1.0;
+            } else {
+                const enabled = props.agentTtsEnabled;
+                ttsStatusMaterial.value.emissiveColor = enabled ? new Color3(0.2, 0.9, 0.5) : new Color3(0.3, 0.3, 0.3);
+                ttsStatusMaterial.value.alpha = enabled ? 1.0 : 0.3;
+            }
         }
         if (llmStatusMaterial.value) {
-            const enabled = props.agentLlmEnabled;
-            llmStatusMaterial.value.emissiveColor = enabled ? new Color3(0.5, 0.2, 0.9) : new Color3(0.3, 0.3, 0.3);
-            llmStatusMaterial.value.alpha = enabled ? 1.0 : 0.3;
+            if (!props.active) {
+                llmStatusMaterial.value.emissiveColor = new Color3(1, 0, 0); // Red when inactive
+                llmStatusMaterial.value.alpha = 1.0;
+            } else {
+                const enabled = props.agentLlmEnabled;
+                llmStatusMaterial.value.emissiveColor = enabled ? new Color3(0.5, 0.2, 0.9) : new Color3(0.3, 0.3, 0.3);
+                llmStatusMaterial.value.alpha = enabled ? 1.0 : 0.3;
+            }
         }
 
         // Wave bounce animation for status indicators when LLM or TTS is working
-        if (isLlmOrTtsWorking && agentRoot.value) {
+        if (isLlmOrTtsWorking && props.active && agentRoot.value) {
             const bounceAmount = 0.05;
             const waveOffset = Math.PI * 2 / 3; // 120 degrees between each indicator
 

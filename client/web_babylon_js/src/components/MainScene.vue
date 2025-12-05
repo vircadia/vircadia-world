@@ -63,7 +63,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -98,7 +98,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -136,7 +136,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                                }}</v-icon>
+                                            }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -178,8 +178,10 @@
                                             :agent-echo-output-stream="agentEchoOutputStream"
                                             :agent-tts-output-mode="agentTtsOutputMode" :agent-wake-word="agentWakeWord"
                                             :agent-end-word="agentEndWord" :agent-language="agentLanguage"
-                                            :agent-enable-tts="agentEnableTTS" :agent-enable-llm="agentEnableLLM"
-                                            :agent-enable-stt="agentEnableSTT" :agent-stt-pre-gain="agentSttPreGain"
+                                            :agent-enable-tts="agentEnableTTS && agentActive"
+                                            :agent-enable-llm="agentEnableLLM && agentActive"
+                                            :agent-enable-stt="agentEnableSTT && agentActive"
+                                            :agent-stt-pre-gain="agentSttPreGain"
                                             :agent-stt-input-mode="agentSttInputMode"
                                             :agent-stt-target-sample-rate="agentSttTargetSampleRate"
                                             :agent-stt-worklet-chunk-ms="agentSttWorkletChunkMs"
@@ -371,7 +373,8 @@
                                                                                 :agent-llm-enabled="agentCapabilities.llm"
                                                                                 :agent-stt-working="agentSttWorking"
                                                                                 :agent-tts-working="agentTtsWorking"
-                                                                                :agent-llm-working="agentLlmWorking" />
+                                                                                :agent-llm-working="agentLlmWorking"
+                                                                                v-model:active="agentActive" />
                                                                         </template>
 
                                                                         <!-- Other avatars slot -->
@@ -577,7 +580,9 @@ function onInspectorVisibleChange(v: boolean) {
 
 const performanceMode = useStorage<"normal" | "low">("vrca.perf.mode", "low");
 
-// WebRTC component ref for direct API access (replaces bus)
+// WebRTC component ref for direct Agent API access (replaces bus)
+const agentActive = useStorage<boolean>("vrca.agent.active", false);
+
 type WebRTCRefApi = {
     getLocalStream: () => MediaStream | null;
     getPeersMap: () => Map<string, RTCPeerConnection>;

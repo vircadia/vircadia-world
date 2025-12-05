@@ -63,7 +63,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -98,7 +98,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -136,7 +136,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                                }}</v-icon>
+                                            }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -168,7 +168,8 @@
                             :engine-type="isAutonomousAgent ? 'nullengine' : 'webgpu'">
                             <template #default="{ scene: providedScene }">
 
-                                <BabylonMic>
+                                <BabylonMic :echo-cancellation="micEchoCancellation"
+                                    :noise-suppression="micNoiseSuppression" :auto-gain-control="micAutoGainControl">
                                     <template #default="{ stream: micStream }">
                                         <VircadiaCloudInferenceProvider ref="cloudAgentRef"
                                             :vircadia-world="vircadiaWorld" :webrtc-ref="webrtcApi"
@@ -416,7 +417,10 @@
                                                                                     v-model:peers-map="webrtcPeersMap"
                                                                                     v-model:remote-streams-map="webrtcRemoteStreamsMap"
                                                                                     :headless-uplink="isAutonomousAgent"
-                                                                                    :injected-local-stream="micStream" />
+                                                                                    :injected-local-stream="micStream"
+                                                                                    v-model:echo-cancellation="micEchoCancellation"
+                                                                                    v-model:noise-suppression="micNoiseSuppression"
+                                                                                    v-model:auto-gain-control="micAutoGainControl" />
 
                                                                             </BabylonOtherAvatars>
                                                                         </template>
@@ -738,6 +742,11 @@ const audioDevices = ref<{ deviceId: string; label: string }[]>([]);
 // Chat state
 const localChatMessages = ref<ChatMessage[]>([]);
 const sttTranscripts = ref<string[]>([]);
+
+// Audio Processing Constraints (defaulted to false to prevent cutting out)
+const micEchoCancellation = useStorage<boolean>("vrca.audio.echoCancellation", true);
+const micNoiseSuppression = useStorage<boolean>("vrca.audio.noiseSuppression", false);
+const micAutoGainControl = useStorage<boolean>("vrca.audio.autoGainControl", false);
 
 // We need to change handleChatMessage signature to accept vircadiaWorld
 async function onChatMessage(text: string, vircadiaWorld: any) {

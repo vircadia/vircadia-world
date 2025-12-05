@@ -17,6 +17,21 @@
 
                 <v-divider class="my-4" />
 
+                <div class="text-subtitle-2 mb-2">Microphone Settings</div>
+                <div class="d-flex align-center flex-wrap gap-2">
+                    <v-switch :model-value="echoCancellation"
+                        @update:model-value="emit('update:echoCancellation', $event)" label="Echo Cancellation"
+                        color="primary" hide-details density="compact" class="mr-4" />
+                    <v-switch :model-value="noiseSuppression"
+                        @update:model-value="emit('update:noiseSuppression', $event)" label="Noise Suppression"
+                        color="primary" hide-details density="compact" class="mr-4" />
+                    <v-switch :model-value="autoGainControl"
+                        @update:model-value="emit('update:autoGainControl', $event)" label="Auto Gain Control"
+                        color="primary" hide-details density="compact" />
+                </div>
+
+                <v-divider class="my-4" />
+
                 <div class="text-subtitle-2 mb-2">My Spatial Audio Listener</div>
                 <div v-if="spatialAudio.listenerDebug.value"
                     class="text-caption text-grey-darken-1 mb-4 border pa-2 rounded-lg bg-grey-lighten-4">
@@ -313,10 +328,10 @@
                                                     spatialAudio.getPeerSpatialDebug(peerId)?.distanceModel }}</v-chip>
                                                 <span class="mr-2 text-xs">Ref: {{
                                                     spatialAudio.getPeerSpatialDebug(peerId)?.refDistance
-                                                    }}</span>
+                                                }}</span>
                                                 <span class="mr-2 text-xs">Max: {{
                                                     spatialAudio.getPeerSpatialDebug(peerId)?.maxDistance
-                                                    }}</span>
+                                                }}</span>
                                                 <span class="text-xs">Roll: {{
                                                     spatialAudio.getPeerSpatialDebug(peerId)?.rolloffFactor }}</span>
                                             </div>
@@ -369,7 +384,7 @@
                                                 :color="getAudioLevelColor(peerId)" height="8" rounded
                                                 style="min-width: 100px" class="mr-2" />
                                             <span class="text-caption">{{ getPeerAudioLevel(peerId).toFixed(1)
-                                                }}%</span>
+                                            }}%</span>
                                         </div>
                                     </v-list-item-title>
                                 </v-list-item>
@@ -538,6 +553,10 @@ interface Props {
     uplinkUsingDestination?: boolean;
     // When true, skip getUserMedia and use internal uplink destination
     headlessUplink?: boolean;
+    // Audio constraints
+    echoCancellation?: boolean;
+    noiseSuppression?: boolean;
+    autoGainControl?: boolean;
 }
 
 const emit = defineEmits<{
@@ -557,6 +576,10 @@ const emit = defineEmits<{
     "update:peerVolumes": [value: Map<string, number>];
     "update:peerAudioLevels": [value: Map<string, number>];
     "update:uplinkUsingDestination": [value: boolean];
+    // Audio constraints
+    "update:echoCancellation": [value: boolean];
+    "update:noiseSuppression": [value: boolean];
+    "update:autoGainControl": [value: boolean];
 }>();
 
 const props = defineProps<Props>();

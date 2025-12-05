@@ -8,9 +8,9 @@ import { onMounted, onUnmounted, ref, watch } from "vue";
 
 const props = defineProps({
     deviceId: { type: String, default: "" },
-    echoCancellation: { type: Boolean, default: true },
-    noiseSuppression: { type: Boolean, default: true },
-    autoGainControl: { type: Boolean, default: true },
+    echoCancellation: { type: Boolean, default: false },
+    noiseSuppression: { type: Boolean, default: false },
+    autoGainControl: { type: Boolean, default: false },
 });
 
 const emit = defineEmits<(e: "update:stream", v: MediaStream | null) => void>();
@@ -55,7 +55,7 @@ onUnmounted(() => {
     void closeMic();
 });
 
-watch(() => props.deviceId, async () => {
+watch(() => [props.deviceId, props.echoCancellation, props.noiseSuppression, props.autoGainControl], async () => {
     await openMic();
 });
 </script>

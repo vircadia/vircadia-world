@@ -1,8 +1,8 @@
 <template>
     <!-- Renderless by default -->
-    <slot :capabilities-enabled="capabilitiesEnabled" :agent-stt-working="sttProcessing || sttUploading"
-        :agent-tts-working="ttsGenerating" :agent-llm-working="llmGenerating" :tts-level="ttsLevel"
-        :tts-talking="ttsTalking" :tts-threshold="ttsThreshold"></slot>
+    <slot :capabilities-enabled="capabilitiesEnabled" :agent-stt-working="false" :agent-tts-working="ttsGenerating"
+        :agent-llm-working="llmGenerating" :tts-level="ttsLevel" :tts-talking="ttsTalking"
+        :tts-threshold="ttsThreshold"></slot>
 
     <!-- Teleport control button to MainScene app bar -->
     <Teleport v-if="teleportTarget" :to="teleportTarget">
@@ -36,17 +36,6 @@
                         <v-card variant="outlined" class="pa-3">
                             <div class="d-flex flex-wrap gap-3 align-center">
                                 <div class="d-flex align-center">
-                                    <v-icon class="mr-1">mdi-microphone</v-icon>
-                                    <v-chip
-                                        :color="sttUploading || sttProcessing ? 'warning' : (sttReady && capabilitiesEnabled.stt ? 'success' : 'error')"
-                                        size="small">
-                                        {{ sttUploading || sttProcessing ? 'Transcribing' : sttReady &&
-                                            capabilitiesEnabled.stt ? 'Ready' : capabilitiesEnabled.stt ? 'Idle' :
-                                            'Disabled'
-                                        }}
-                                    </v-chip>
-                                </div>
-                                <div class="d-flex align-center">
                                     <v-icon class="mr-1">mdi-brain</v-icon>
                                     <v-chip
                                         :color="llmGenerating ? 'warning' : (capabilitiesEnabled.llm ? 'success' : 'error')"
@@ -68,17 +57,6 @@
                                     <v-icon class="mr-1">mdi-phone</v-icon>
                                     <v-chip :color="webrtcConnected ? 'success' : 'warning'" size="small">
                                         {{ webrtcConnected ? 'WebRTC' : 'No WebRTC' }}
-                                    </v-chip>
-                                </div>
-                                <div class="d-flex align-center">
-                                    <v-icon class="mr-1">mdi-record-rec</v-icon>
-                                    <v-chip
-                                        :color="vadRecording ? 'warning' : (sttReady && capabilitiesEnabled.stt ? 'success' : 'error')"
-                                        size="small">
-                                        {{ vadRecording ? 'Recording' : sttReady &&
-                                            capabilitiesEnabled.stt ? 'Ready' : capabilitiesEnabled.stt ? 'Idle' :
-                                            'Disabled'
-                                        }}
                                     </v-chip>
                                 </div>
                                 <div class="d-flex align-center">
@@ -327,14 +305,14 @@ const companyName = ref<string>(
     ),
 );
 
-// STT/VAD
-const vadWorkerRef = ref<Worker | null>(null);
-const sttProcessing = ref<boolean>(false);
-const sttUploading = ref<boolean>(false);
-const sttReady = ref<boolean>(false);
-const vadSampleRate = ref<number>(16000);
-const sttActive = ref<boolean>(true);
-const vadRecording = ref<boolean>(false);
+// STT/VAD (Removed internal logic)
+// const vadWorkerRef = ref<Worker | null>(null);
+// const sttProcessing = ref<boolean>(false);
+// const sttUploading = ref<boolean>(false);
+// const sttReady = ref<boolean>(false);
+// const vadSampleRate = ref<number>(16000);
+// const sttActive = ref<boolean>(true);
+// const vadRecording = ref<boolean>(false);
 
 // Audio graph per peer
 type PeerAudioProcessor = {
@@ -343,7 +321,7 @@ type PeerAudioProcessor = {
     node: AudioWorkletNode;
     sink: GainNode;
 };
-const peerProcessors = new Map<string, PeerAudioProcessor>();
+// const peerProcessors = new Map<string, PeerAudioProcessor>();
 
 // RMS meter
 const rmsLevel = ref<number>(0);
@@ -524,294 +502,8 @@ function onAssistantTextTap(
     };
 }
 
-// Worklet loader
-const sttWorkletLoaded = new WeakSet<AudioContext>();
-async function ensureSttWorklet(ctx: AudioContext): Promise<void> {
-    if (sttWorkletLoaded.has(ctx)) return;
-    await ctx.audioWorklet.addModule(
-        new URL("./VircadiaSTTWorklet.ts", import.meta.url),
-    );
-    sttWorkletLoaded.add(ctx);
-}
+// STT/VAD Logic Removed
 
-// Attach stream → VAD → upload
-async function attachStream(
-    peerId: string,
-    stream: MediaStream,
-): Promise<void> {
-    if (peerProcessors.has(peerId)) return;
-    try {
-        const ctx = new AudioContext({ sampleRate: 48000 });
-        await ensureSttWorklet(ctx);
-        const source = ctx.createMediaStreamSource(stream);
-        const preGain = ctx.createGain();
-        preGain.gain.value = Math.max(
-            0.01,
-            Number(props.agentSttPreGain || 1.0),
-        );
-        const node = new AudioWorkletNode(ctx, "stt-processor", {
-            processorOptions: {
-                targetSampleRate: Math.max(
-                    8000,
-                    Math.min(
-                        48000,
-                        Number(props.agentSttTargetSampleRate || 16000),
-                    ),
-                ),
-                chunkMs: Math.max(
-                    50,
-                    Math.min(2000, Number(props.agentSttWorkletChunkMs || 200)),
-                ),
-            },
-        });
-
-        try {
-            await ctx.resume();
-        } catch { }
-
-        node.port.onmessage = (ev: MessageEvent) => {
-            const data = ev.data as {
-                type: string;
-                pcm?: ArrayBuffer;
-                rms?: number;
-            };
-            if (!data) return;
-            if (data.type === "pcm" && data.pcm) {
-                if (!sttActive.value) return;
-                // Forward to VAD worker
-                try {
-                    vadWorkerRef.value?.postMessage(
-                        { type: "audio", peerId, pcm: data.pcm, rms: data.rms },
-                        [data.pcm],
-                    );
-                } catch { }
-                if (typeof data.rms === "number" && Number.isFinite(data.rms))
-                    rmsLevel.value = Math.max(0, Math.min(1, data.rms));
-            }
-        };
-
-        const sink = ctx.createGain();
-        sink.gain.value = 0.0;
-        source.connect(preGain);
-        preGain.connect(node);
-        node.connect(sink);
-        sink.connect(ctx.destination);
-
-        peerProcessors.set(peerId, { ctx, source, node, sink });
-        // Start VAD for this peer
-        vadWorkerRef.value?.postMessage({
-            type: "start",
-            peerId,
-            language: String(props.agentLanguage || "en"),
-        });
-    } catch (e) {
-        console.warn("[CloudAgent] Failed to attach stream:", e);
-    }
-}
-
-function detachStream(peerId: string): void {
-    const proc = peerProcessors.get(peerId);
-    if (!proc) return;
-    try {
-        proc.node.disconnect();
-        proc.sink.disconnect();
-        proc.source.disconnect();
-        void proc.ctx.close();
-    } catch { }
-    peerProcessors.delete(peerId);
-    try {
-        vadWorkerRef.value?.postMessage({ type: "stop", peerId });
-    } catch { }
-}
-
-// VAD worker
-function initVadWorkerOnce(): void {
-    if (vadWorkerRef.value) return;
-    try {
-        const worker = new Worker(
-            new URL("./VircadiaAutonomousAgentVADWorker.ts", import.meta.url),
-            { type: "module" },
-        );
-        worker.addEventListener("message", (e: MessageEvent) => {
-            const msg = e.data as {
-                type: string;
-                status?: string;
-                peerId?: string;
-                pcm?: ArrayBuffer;
-            };
-            console.log(`[CloudAgent] VAD worker message:`, msg);
-            if (msg.type === "segment" && msg.pcm && msg.peerId) {
-                console.log(`[CloudAgent] Received VAD segment for peer ${msg.peerId}, size: ${msg.pcm.byteLength} bytes`);
-                // Upload to server STT
-                void uploadVadSegment(msg.peerId, msg.pcm).catch(() => { });
-            }
-            if (msg.type === "status" && msg.status) {
-                if (msg.status === "recording_start") {
-                    sttReady.value = true;
-                    vadRecording.value = true;
-                } else if (msg.status === "recording_end") {
-                    vadRecording.value = false;
-                }
-            }
-        });
-        const vadCfg = props.agentVadConfig || { sampleRate: 16000 };
-        const mergedCfg = {
-            ...vadCfg,
-            sampleRate: Math.max(
-                8000,
-                Math.min(
-                    48000,
-                    Number(
-                        props.agentSttTargetSampleRate ||
-                        vadCfg.sampleRate ||
-                        16000,
-                    ),
-                ),
-            ),
-        };
-        worker.postMessage({ type: "load", config: mergedCfg });
-        vadSampleRate.value = mergedCfg.sampleRate;
-        vadWorkerRef.value = worker;
-        sttReady.value = true;
-    } catch (e) {
-        console.error("[CloudAgent] Failed to init VAD worker:", e);
-        vadWorkerRef.value = null;
-        sttReady.value = false;
-    }
-}
-
-// WAV encoding and upload
-function clampToInt16(sample: number): number {
-    const s = Math.max(-1, Math.min(1, sample));
-    return s < 0 ? s * 0x8000 : s * 0x7fff;
-}
-function writeString(view: DataView, offset: number, str: string): void {
-    for (let i = 0; i < str.length; i++)
-        view.setUint8(offset + i, str.charCodeAt(i));
-}
-function encodeWavFromFloat32(
-    pcm: Float32Array,
-    sampleRate: number,
-): ArrayBuffer {
-    const numChannels = 1;
-    const bitsPerSample = 16;
-    const blockAlign = (numChannels * bitsPerSample) >> 3;
-    const byteRate = sampleRate * blockAlign;
-    const dataSize = pcm.length * 2;
-    const buffer = new ArrayBuffer(44 + dataSize);
-    const view = new DataView(buffer);
-    writeString(view, 0, "RIFF");
-    view.setUint32(4, 36 + dataSize, true);
-    writeString(view, 8, "WAVE");
-    writeString(view, 12, "fmt ");
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, numChannels, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, byteRate, true);
-    view.setUint16(32, blockAlign, true);
-    view.setUint16(34, bitsPerSample, true);
-    writeString(view, 36, "data");
-    view.setUint32(40, dataSize, true);
-    let offset = 44;
-    for (const x of pcm) {
-        view.setInt16(offset, clampToInt16(x), true);
-        offset += 2;
-    }
-    return buffer;
-}
-function encodeWavFromInt16(pcm: Int16Array, sampleRate: number): ArrayBuffer {
-    const numChannels = 1;
-    const bitsPerSample = 16;
-    const blockAlign = (numChannels * bitsPerSample) >> 3;
-    const byteRate = sampleRate * blockAlign;
-    const dataSize = pcm.length * 2;
-    const buffer = new ArrayBuffer(44 + dataSize);
-    const view = new DataView(buffer);
-    writeString(view, 0, "RIFF");
-    view.setUint32(4, 36 + dataSize, true);
-    writeString(view, 8, "WAVE");
-    writeString(view, 12, "fmt ");
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, byteRate, true);
-    view.setUint16(32, blockAlign, true);
-    view.setUint16(34, bitsPerSample, true);
-    writeString(view, 36, "data");
-    view.setUint32(40, dataSize, true);
-    let offset = 44;
-    for (const x of pcm) {
-        view.setInt16(offset, x, true);
-        offset += 2;
-    }
-    return buffer;
-}
-function detectAndEncodeWav(
-    pcmBuffer: ArrayBuffer,
-    sampleRate: number,
-): ArrayBuffer {
-    if (pcmBuffer.byteLength % 4 === 0) {
-        const f32 = new Float32Array(pcmBuffer);
-        let ok = true;
-        const n = Math.min(8, f32.length);
-        for (let i = 0; i < n; i++) {
-            const v = f32[i];
-            if (!Number.isFinite(v) || Math.abs(v) > 1.0001) {
-                ok = false;
-                break;
-            }
-        }
-        if (ok) return encodeWavFromFloat32(f32, sampleRate);
-    }
-    return encodeWavFromInt16(new Int16Array(pcmBuffer), sampleRate);
-}
-
-async function uploadVadSegment(
-    peerId: string,
-    pcm: ArrayBuffer,
-): Promise<void> {
-    try {
-        console.log(`[CloudAgent] Starting STT upload for peer ${peerId}, PCM size: ${pcm.byteLength} bytes`);
-        sttUploading.value = true;
-        sttProcessing.value = true;
-        const sr = Math.max(
-            8000,
-            Math.min(48000, Number(vadSampleRate.value || 16000)),
-        );
-        const wavAb = detectAndEncodeWav(pcm, sr);
-        console.log(`[CloudAgent] Encoded WAV size: ${wavAb.byteLength} bytes, sample rate: ${sr}Hz`);
-        const blob = new Blob([wavAb], { type: "audio/wav" });
-        const file = new File([blob], `segment_${Date.now()}.wav`, {
-            type: "audio/wav",
-        });
-        const client = props.vircadiaWorld?.client;
-        if (!client) {
-            console.warn("[CloudAgent] No client available for STT");
-            return;
-        }
-        console.log(`[CloudAgent] Sending STT request...`);
-        const resp = await client.restInference.stt({
-            audio: file,
-            language: String(props.agentLanguage || "en"),
-            responseFormat: "json",
-        });
-        console.log(`[CloudAgent] STT response:`, resp);
-        if (resp?.success && resp.text) {
-            console.log(`[CloudAgent] STT success, text: "${resp.text}"`);
-            addTranscript(peerId, resp.text);
-            await submitToLlm(peerId, resp.text);
-        } else {
-            console.warn(`[CloudAgent] STT failed or no text in response:`, resp);
-        }
-    } catch (e) {
-        console.warn("[CloudAgent] STT upload failed:", e);
-    } finally {
-        sttUploading.value = false;
-        sttProcessing.value = false;
-    }
-}
 
 // LLM
 function buildPromptHistory(
@@ -1347,22 +1039,23 @@ async function testServerLLM(): Promise<void> {
 }
 
 // Attachments
-async function attachMic(): Promise<void> {
-    if (!props.agentEnableStt) return;
-    // Priority: agentMicInputStream prop > webrtcLocalStream
-    let stream: MediaStream | null = props.agentMicInputStream || null;
-    if (!stream) {
-        const local = localStreamRef.value;
-        stream = local || null;
-    }
-    if (!stream) {
-        console.warn(
-            "[CloudAgent] No mic input stream available. Please provide agentMicInputStream prop.",
-        );
-        return;
-    }
-    await attachStream("mic", stream);
-}
+// Attachments
+// async function attachMic(): Promise<void> {
+//     if (!props.agentEnableStt) return;
+//     // Priority: agentMicInputStream prop > webrtcLocalStream
+//     let stream: MediaStream | null = props.agentMicInputStream || null;
+//     if (!stream) {
+//         const local = localStreamRef.value;
+//         stream = local || null;
+//     }
+//     if (!stream) {
+//         console.warn(
+//             "[CloudAgent] No mic input stream available. Please provide agentMicInputStream prop.",
+//         );
+//         return;
+//     }
+//     await attachStream("mic", stream);
+// }
 
 // Fetch capabilities
 async function fetchCapabilities(): Promise<void> {
@@ -1383,105 +1076,26 @@ async function fetchCapabilities(): Promise<void> {
 }
 
 // Watchers
+// Watchers
 watch(
     () => props.vircadiaWorld?.connectionInfo.value.status,
     async (status) => {
         if (status === "connected") {
             await fetchCapabilities();
-            if (props.agentEnableStt && capabilitiesEnabled.value.stt) {
-                initVadWorkerOnce();
-                const mode = props.agentSttInputMode;
-                if (mode === "webrtc" || mode === "both") {
-                    for (const [pid, stream] of remoteStreamsRef.value)
-                        attachStream(pid, stream);
-                }
-                if (mode === "mic" || mode === "both") await attachMic();
-            }
+            // STT/VAD init removed
         } else {
-            for (const [pid] of peerProcessors) detachStream(pid);
+            // detachStream removed
         }
     },
     { immediate: true },
 );
 
-watch(
-    () => remoteStreamsRef.value,
-    (streams, oldStreams) => {
-        if (!props.agentEnableStt) return;
-        initVadWorkerOnce();
-        const mode = props.agentSttInputMode;
-        if (mode === "webrtc" || mode === "both") {
-            for (const [pid, stream] of streams) attachStream(pid, stream);
-        }
-        if (oldStreams instanceof Map) {
-            for (const [oldPid] of oldStreams) {
-                if (!streams.has(oldPid)) detachStream(oldPid);
-            }
-        }
-    },
-    { deep: true },
-);
+// Watchers for streams removed as STT is now external
 
-// React to mic stream becoming available/changed
-watch(
-    () => props.agentMicInputStream,
-    async (stream) => {
-        if (!props.agentEnableStt) return;
-        initVadWorkerOnce();
-        const mode = props.agentSttInputMode;
-        if (mode === "mic" || mode === "both") {
-            // Reattach mic with the latest stream or detach if missing
-            detachStream("mic");
-            if (stream) await attachStream("mic", stream);
-        }
-    },
-    { immediate: true },
-);
-
-// Fallback to WebRTC local stream if explicit mic stream not provided
-watch(
-    () => localStreamRef.value,
-    async (stream) => {
-        if (!props.agentEnableStt) return;
-        if (props.agentMicInputStream) return; // explicit mic input takes precedence
-        initVadWorkerOnce();
-        const mode = props.agentSttInputMode;
-        if (mode === "mic" || mode === "both") {
-            detachStream("mic");
-            if (stream) await attachStream("mic", stream);
-        }
-    },
-);
-
-watch(
-    () => props.agentSttInputMode,
-    async (mode) => {
-        if (!props.agentEnableStt) return;
-        initVadWorkerOnce();
-        if (mode === "webrtc") {
-            for (const [pid] of peerProcessors) {
-                if (pid !== "mic") detachStream(pid);
-            }
-            for (const [pid, stream] of remoteStreamsRef.value)
-                attachStream(pid, stream);
-        } else if (mode === "mic") {
-            for (const [pid] of peerProcessors) detachStream(pid);
-            await attachMic();
-        } else if (mode === "both") {
-            for (const [pid, stream] of remoteStreamsRef.value)
-                attachStream(pid, stream);
-            await attachMic();
-        }
-    },
-    { immediate: false },
-);
 
 onUnmounted(() => {
-    for (const [pid] of peerProcessors) detachStream(pid);
-    try {
-        const w = vadWorkerRef.value;
-        if (w) w.terminate();
-    } catch { }
+    // detachStream removed
+    // vadWorkerRef removed
     knowledgeBySource.clear();
     directives.clear();
     transcriptTaps.splice(0, transcriptTaps.length);
@@ -1569,6 +1183,18 @@ const api: CloudInferenceAPI = {
     },
 };
 provide(cloudInferenceKey, api);
+
+// External API
+async function handleLocalUserMessage(text: string) {
+    if (!text.trim()) return;
+    const peerId = props.vircadiaWorld?.connectionInfo.value.fullSessionId || "user";
+    addTranscript(peerId, text);
+    await submitToLlm(peerId, text);
+}
+
+defineExpose({
+    handleLocalUserMessage,
+});
 </script>
 
 <style>

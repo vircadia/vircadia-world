@@ -366,77 +366,6 @@ services:
       - vircadia_internal_network
       - vircadia_public_network
 
-  # BabylonJS Web Client service
-  vircadia_world_client_web_babylon_js:
-    image: caddy:2.10.2-alpine
-    container_name: ${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME}
-    user: "1000:1000"
-    restart: always
-    read_only: true
-    ports:
-      - "${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}"
-    volumes:
-      - ../../client/web_babylon_js/dist-docker:/srv:ro
-    # Serve prebuilt static assets produced on the host
-    command:
-      [
-        "caddy",
-        "file-server",
-        "--root",
-        "/srv",
-        "--listen",
-        ":${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}",
-      ]
-    tmpfs:
-      - /tmp
-      - /var/run
-      - /var/cache
-      - /data:uid=1000,gid=1000
-      - /config:uid=1000,gid=1000
-    environment:
-      VRCA_CLIENT_WEB_BABYLON_JS_DEBUG: ${VRCA_CLIENT_WEB_BABYLON_JS_DEBUG}
-      VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS: ${VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS}
-      VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN: ${VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN}
-      VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER: ${VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER}
-      VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT: ${VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT}
-      VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE: ${VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE}
-      VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION: ${VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION}
-      VRCA_CLIENT_WEB_BABYLON_JS_META_OG_IMAGE: ${VRCA_CLIENT_WEB_BABYLON_JS_META_OG_IMAGE}
-      VRCA_CLIENT_WEB_BABYLON_JS_META_OG_TYPE: ${VRCA_CLIENT_WEB_BABYLON_JS_META_OG_TYPE}
-      VRCA_CLIENT_WEB_BABYLON_JS_META_FAVICON: ${VRCA_CLIENT_WEB_BABYLON_JS_META_FAVICON}
-      VRCA_CLIENT_WEB_BABYLON_JS_APP_URL: ${VRCA_CLIENT_WEB_BABYLON_JS_APP_URL}
-      VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI}
-      VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL}
-      VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI}
-      VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL}
-      VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI}
-      VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL}
-      VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST: ${VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST}
-      VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT: ${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}
-    depends_on:
-      vircadia_world_api_ws_manager:
-        condition: service_healthy
-        restart: true
-      vircadia_world_api_rest_auth_manager:
-        condition: service_healthy
-        restart: true
-      vircadia_world_api_rest_asset_manager:
-        condition: service_healthy
-        restart: true
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget --spider http://127.0.0.1:${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}",
-        ]
-      interval: 10s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    networks:
-      - vircadia_internal_network
-      - vircadia_public_network
-
   # Caddy reverse proxy service
   vircadia_world_caddy:
     image: caddy:2.10.2-alpine
@@ -447,8 +376,10 @@ services:
     ports:
       - "${VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP}:80"
       - "${VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS}:443"
+      - "${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT:-3066}:${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT:-3066}"
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../../client/web_babylon_js/dist-docker:/srv/app:ro
     tmpfs:
       - /tmp
       - /var/run
@@ -462,7 +393,6 @@ services:
       CADDY_UPSTREAM_API_AUTH: ${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME}:3022
       CADDY_UPSTREAM_API_ASSET: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME}:3023
       CADDY_UPSTREAM_API_INFERENCE: ${VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_CONTAINER_NAME}:3024
-      CADDY_UPSTREAM_APP: ${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME}:${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}
       CADDY_EMAIL: ${VRCA_SERVER_SERVICE_CADDY_EMAIL}
       CADDY_TLS_API: ${VRCA_SERVER_SERVICE_CADDY_TLS_API:-}
       CADDY_TLS_APP: ${VRCA_SERVER_SERVICE_CADDY_TLS_APP:-}
@@ -471,9 +401,6 @@ services:
         condition: service_healthy
         restart: true
       vircadia_world_api_rest_inference_manager:
-        condition: service_healthy
-        restart: true
-      vircadia_world_client_web_babylon_js:
         condition: service_healthy
         restart: true
     healthcheck:

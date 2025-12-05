@@ -22,9 +22,12 @@
 }
 
 {$CADDY_DOMAIN_APP} {
+  bind 0.0.0.0
   {$CADDY_TLS_APP}
   encode zstd gzip
 
-  # Proxy app traffic to the prod web server container
-  reverse_proxy http://{$CADDY_UPSTREAM_APP}
+  # Serve the app directly
+  root * /srv/app
+  file_server
+  try_files {path} /index.html
 }

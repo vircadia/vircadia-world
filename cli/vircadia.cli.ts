@@ -643,55 +643,7 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_SUPPRESS:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_SUPPRESS.toString(),
 
-            // Web Babylon JS Client service
-            VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME:
-                serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME,
-            VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL,
-            VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL.toString(),
-            VRCA_CLIENT_WEB_BABYLON_JS_DEBUG:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG.toString(),
-            VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS.toString(),
-            VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
-            VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
-            VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT.toString(),
-            VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE,
-            VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION,
-            VRCA_CLIENT_WEB_BABYLON_JS_META_OG_IMAGE:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_OG_IMAGE,
-            VRCA_CLIENT_WEB_BABYLON_JS_META_OG_TYPE:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_OG_TYPE,
-            VRCA_CLIENT_WEB_BABYLON_JS_META_FAVICON:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_FAVICON,
-            VRCA_CLIENT_WEB_BABYLON_JS_APP_URL:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_APP_URL,
-            VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI,
-            VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL.toString(),
-            VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI,
-            VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL.toString(),
-            VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI,
-            VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL.toString(),
-            VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST,
-            VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT.toString(),
-            VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST,
-            VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT.toString(),
+
 
             // Azure Entra ID Auth (env-first)
             VRCA_SERVER_AUTH_AZURE_CLIENT_ID:
@@ -887,29 +839,13 @@ export namespace Server_CLI {
                 .VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
             serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
 
-        const appHostExternal =
-            (await EnvManager.getVariable(
-                "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL",
-                "cli",
-            )) ||
-            process.env
-                .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL ||
-            serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL;
 
-        const appPortExternal =
-            (await EnvManager.getVariable(
-                "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL",
-                "cli",
-            )) ||
-            process.env
-                .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL ||
-            serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL.toString();
 
         const apiWsUpstream = `${apiWsHostExternal}:${apiWsPortExternal}`;
         const apiAuthUpstream = `${apiAuthHostExternal}:${apiAuthPortExternal}`;
         const apiAssetUpstream = `${apiAssetHostExternal}:${apiAssetPortExternal}`;
         const apiInferenceUpstream = `${apiInferenceHostExternal}:${apiInferencePortExternal}`;
-        const appUpstream = `${appHostExternal}:${appPortExternal}`;
+
 
         BunLogModule({
             message: "Reverse proxy egress points (what to proxy):",
@@ -931,16 +867,14 @@ export namespace Server_CLI {
         console.log(
             `  API REST Inference Manager:  http://${apiInferenceHostExternal}:${apiInferencePortExternal}`,
         );
-        console.log(
-            `  Web Babylon.js Client App:   http://${appHostExternal}:${appPortExternal}`,
-        );
+
 
         console.log(`\nDocker network upstreams (for proxies inside Docker):`);
         console.log(`  API WS Manager:  ${apiWsUpstream}`);
         console.log(`  API REST Auth Manager:  ${apiAuthUpstream}`);
         console.log(`  API REST Asset Manager:  ${apiAssetUpstream}`);
         console.log(`  API REST Inference Manager:  ${apiInferenceUpstream}`);
-        console.log(`  Web Babylon.js Client App:   ${appUpstream}`);
+
     }
 
     export async function markDatabaseAsReady(): Promise<void> {
@@ -2695,37 +2629,6 @@ if (import.meta.main) {
                 });
                 BunLogModule({
                     message: `World State Manager: healthy`,
-                    type: "success",
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
-                process.exit(0);
-                break;
-            }
-
-            case "server:client:web_babylon_js:health": {
-                const waitParam = parseWaitFlags(additionalArgs);
-                await Server_CLI.withWait<void>(
-                    () =>
-                        Server_CLI.checkContainer(
-                            serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME,
-                        ),
-                    waitParam,
-                ).catch((error) => {
-                    BunLogModule({
-                        message: `Client Web Babylon JS: unhealthy`,
-                        type: "error",
-                        error,
-                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                        debug: cliConfiguration.VRCA_CLI_DEBUG,
-                    });
-                    process.exit(1);
-                });
-                BunLogModule({
-                    message: `Client Web Babylon JS: healthy`,
-                    type: "success",
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
                 });
                 process.exit(0);
                 break;

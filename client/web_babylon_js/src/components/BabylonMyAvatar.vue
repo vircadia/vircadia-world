@@ -730,16 +730,43 @@ function ensureTalkingGroupReady(): void {
 }
 
 function setMoveAnimationFromDef(def: AnimationDef | undefined): void {
-    if (!def) return;
+    if (!def) {
+        if (walkAnimation) {
+            if (previousMoveAnimation) {
+                try {
+                    previousMoveAnimation.stop();
+                    previousMoveAnimation.setWeightForAllAnimatables(0);
+                } catch { }
+            }
+            previousMoveAnimation = walkAnimation;
+            walkAnimation = null;
+            currentMoveFileName = null;
+            moveCrossfadeT = 0;
+            try {
+                if (!previousMoveAnimation.isPlaying) previousMoveAnimation.play(true);
+            } catch { }
+        }
+        return;
+    } else if (!walkAnimation) {
+        // Starting from idle: clear any stale previous animation and set full weight to new
+        previousMoveAnimation = null;
+        moveCrossfadeT = 1;
+    }
     if (currentMoveFileName === def.fileName && walkAnimation) return;
     const info = animationsMap.value.get(def.fileName);
     if (info?.state !== "ready" || !info.group) return;
     const newGroup = info.group as AnimationGroup;
 
     if (walkAnimation && walkAnimation !== newGroup) {
+        if (previousMoveAnimation) {
+            try {
+                previousMoveAnimation.stop();
+                previousMoveAnimation.setWeightForAllAnimatables(0);
+            } catch { }
+        }
         previousMoveAnimation = walkAnimation;
         try {
-            previousMoveAnimation.play(true);
+            if (!previousMoveAnimation.isPlaying) previousMoveAnimation.play(true);
         } catch { }
         moveCrossfadeT = 0;
     }
@@ -767,7 +794,7 @@ function refreshDesiredAnimations(): void {
     let desired: AnimationDef | undefined;
     if (isFlying.value) {
         desired = getDesiredMoveDefFromKeys() || getFlyingIdleDef();
-    } else if (lastAirborne.value && !spawnSettleActive.value) {
+    } else if (lastAirborne.value && !spawnSettleActive.value && Math.abs(lastVerticalVelocity.value) > 0.5) {
         // Rising: jump; Falling or apex: falling
         desired =
             lastVerticalVelocity.value > 0 ? getJumpDef() : getFallingDef();
@@ -890,6 +917,12 @@ function updateAnimationBlending(
         blendWeight.value = Math.min(1, blendWeight.value + change);
     } else if (targetWeight < blendWeight.value) {
         blendWeight.value = Math.max(0, blendWeight.value - change);
+        if (blendWeight.value === 0 && previousMoveAnimation) {
+            try {
+                previousMoveAnimation.stop();
+            } catch { }
+            previousMoveAnimation = null;
+        }
     }
 
     if (previousMoveAnimation && walkAnimation) {

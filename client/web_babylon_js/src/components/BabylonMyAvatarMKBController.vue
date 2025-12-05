@@ -279,12 +279,6 @@ if (typeof window !== "undefined") {
         keyState.value.dash = false;
         keyState.value.turnLeft = false;
         keyState.value.turnRight = false;
-        keyState.value.flyMode = false;
-        keyState.value.crouch = false;
-        keyState.value.prone = false;
-        keyState.value.slowRun = false;
-        keyState.value.mouseLockCameraRotate = false;
-        keyState.value.mouseLockCameraAvatarRotate = false;
         pointerState.value.leftMouseDown = false;
         pointerState.value.rightMouseDown = false;
     };

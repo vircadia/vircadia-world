@@ -43,7 +43,7 @@ const props = defineProps({
     },
     heightOffset: {
         type: Number,
-        default: 2.2,
+        default: 1.4,
     },
 });
 
@@ -56,19 +56,19 @@ function createBubble() {
     if (!props.scene || bubbleMesh.value) return;
 
     // Create a plane for the bubble
-    const plane = MeshBuilder.CreatePlane("chatBubblePlane", { width: 2, height: 0.5 }, props.scene);
+    const plane = MeshBuilder.CreatePlane("chatBubblePlane", { width: 1.5, height: 0.3 }, props.scene);
     plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
     plane.position = new Vector3(0, props.heightOffset, 0);
     plane.isVisible = false;
 
     // Create ADT
-    const adt = AdvancedDynamicTexture.CreateForMesh(plane, 1024, 256);
+    const adt = AdvancedDynamicTexture.CreateForMesh(plane, 1024, 205);
 
     // Background
     const rect = new Rectangle();
     rect.width = 1;
     rect.height = 1;
-    rect.cornerRadius = 20;
+    rect.cornerRadius = 15;
     rect.color = "white";
     rect.thickness = 2;
     rect.background = "rgba(0, 0, 0, 0.6)";

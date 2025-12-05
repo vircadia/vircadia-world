@@ -8,7 +8,7 @@
         "preview": "vite preview",
         "preview-verbose": "vite preview --debug --logLevel debug --clearScreen false",
         "build": "vite build",
-        "build:docker": "vite build --outDir ./dist-docker",
+        "build:docker": "NODE_OPTIONS='--max-old-space-size=8192' vite build --outDir ./dist-docker",
         "type-check": "vue-tsc --build"
     },
     "dependencies": {

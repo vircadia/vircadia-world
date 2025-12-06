@@ -514,6 +514,8 @@ export namespace Server_CLI {
             VRCA_SERVER_DEBUG: serverConfiguration.VRCA_SERVER_DEBUG.toString(),
             VRCA_SERVER_SUPPRESS:
                 serverConfiguration.VRCA_SERVER_SUPPRESS.toString(),
+            VRCA_SERVER_ALLOWED_ORIGINS:
+                serverConfiguration.VRCA_SERVER_ALLOWED_ORIGINS.join(","),
 
             VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
@@ -552,16 +554,13 @@ export namespace Server_CLI {
                 serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP.toString(),
             VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS:
                 serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS.toString(),
-            VRCA_SERVER_SERVICE_CADDY_DOMAIN_API:
-                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN_API,
-            VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP:
-                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP,
+            VRCA_SERVER_SERVICE_CADDY_DOMAIN:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN,
             VRCA_SERVER_SERVICE_CADDY_EMAIL:
                 serverConfiguration.VRCA_SERVER_SERVICE_CADDY_EMAIL,
             VRCA_SERVER_SERVICE_CADDY_TLS_API:
                 serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_API,
-            VRCA_SERVER_SERVICE_CADDY_TLS_APP:
-                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_APP,
+
 
             // API WS Manager
             VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_CONTAINER_NAME:
@@ -2894,19 +2893,13 @@ if (import.meta.main) {
 
                     const currentCaddyDomainApi =
                         (await EnvManager.getVariable(
-                            "VRCA_SERVER_SERVICE_CADDY_DOMAIN_API",
+                            "VRCA_SERVER_SERVICE_CADDY_DOMAIN",
                             "cli",
                         )) ||
-                        process.env.VRCA_SERVER_SERVICE_CADDY_DOMAIN_API ||
-                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN_API;
+                        process.env.VRCA_SERVER_SERVICE_CADDY_DOMAIN ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN;
 
-                    const currentCaddyDomainApp =
-                        (await EnvManager.getVariable(
-                            "VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP",
-                            "cli",
-                        )) ||
-                        process.env.VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP ||
-                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP;
+
 
                     const currentCaddyHostBind =
                         (await EnvManager.getVariable(
@@ -2943,13 +2936,7 @@ if (import.meta.main) {
                         process.env.VRCA_SERVER_SERVICE_CADDY_TLS_API ||
                         serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_API;
 
-                    const currentCaddyTlsApp =
-                        (await EnvManager.getVariable(
-                            "VRCA_SERVER_SERVICE_CADDY_TLS_APP",
-                            "cli",
-                        )) ||
-                        process.env.VRCA_SERVER_SERVICE_CADDY_TLS_APP ||
-                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_APP;
+
 
                     // Model Definitions configuration has been removed
 
@@ -3096,12 +3083,7 @@ if (import.meta.main) {
                                 description:
                                     "The public domain for the world API.",
                             },
-                            {
-                                name: `Caddy Public Browser Client App Domain\n    Current: ${currentCaddyDomainApp}`,
-                                value: "caddy-domain-app",
-                                description:
-                                    "The public domain for the browser client app.",
-                            },
+
                             {
                                 name: `Caddy Container Host Bind\n    Current: ${currentCaddyHostBind}`,
                                 value: "caddy-host-bind",
@@ -3121,17 +3103,12 @@ if (import.meta.main) {
                                     "The HTTPS port bind for the Caddy container.",
                             },
                             {
-                                name: `Caddy TLS Mode (API)\n    Current: ${currentCaddyTlsApi || "Default (SSL enabled)"}`,
+                                name: `Caddy TLS Mode\n    Current: ${currentCaddyTlsApi || "Default (SSL enabled)"}`,
                                 value: "caddy-tls-api",
                                 description:
                                     "Configure TLS for the API domain. Use 'tls internal' for internal CA or leave empty for ACME.",
                             },
-                            {
-                                name: `Caddy TLS Mode (APP)\n    Current: ${currentCaddyTlsApp || "Default (SSL enabled)"}`,
-                                value: "caddy-tls-app",
-                                description:
-                                    "Configure TLS for the APP domain. Use 'tls internal' for internal CA or leave empty for ACME.",
-                            },
+
                             new Separator("==================="),
                             new Separator("=== 🗄️ Database ==="),
                             new Separator("==================="),
@@ -3662,7 +3639,7 @@ if (import.meta.main) {
                             });
 
                             await EnvManager.setVariable(
-                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN_API",
+                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN",
                                 newDomain,
                                 "cli",
                             );
@@ -3675,7 +3652,7 @@ if (import.meta.main) {
                             });
                         } else if (action === "unset") {
                             await EnvManager.unsetVariable(
-                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN_API",
+                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN",
                                 "cli",
                             );
 
@@ -3687,57 +3664,7 @@ if (import.meta.main) {
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
                         }
-                    } else if (configOption === "caddy-domain-app") {
-                        const action = await select({
-                            message:
-                                "What would you like to do with Caddy App Domain?\n",
 
-                            pageSize: 15,
-                            choices: [
-                                {
-                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyDomainApp}`,
-                                    value: "set",
-                                },
-                                {
-                                    name: "Unset variable (remove from CLI .env)",
-                                    value: "unset",
-                                },
-                            ],
-                        });
-
-                        if (action === "set") {
-                            const newDomain = await input({
-                                message: "Enter Caddy App Domain:",
-                                default: currentCaddyDomainApp,
-                                transformer: (value: string) => value.trim(),
-                            });
-
-                            await EnvManager.setVariable(
-                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP",
-                                newDomain,
-                                "cli",
-                            );
-
-                            BunLogModule({
-                                message: `Caddy App Domain set to: ${newDomain} (persisted to CLI .env file)`,
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        } else if (action === "unset") {
-                            await EnvManager.unsetVariable(
-                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP",
-                                "cli",
-                            );
-
-                            BunLogModule({
-                                message:
-                                    "Caddy App Domain variable unset (removed from CLI .env file)",
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        }
                     } else if (configOption === "caddy-host-bind") {
                         const action = await select({
                             message:
@@ -3895,7 +3822,7 @@ if (import.meta.main) {
                         // Back-compat: map legacy TLS option to API TLS
                         const action = await select({
                             message:
-                                "What would you like to do with Caddy TLS Mode (API)?\n",
+                                "What would you like to do with Caddy TLS Mode?\n",
 
                             pageSize: 15,
                             choices: [
@@ -3913,7 +3840,7 @@ if (import.meta.main) {
                         if (action === "set") {
                             const newTlsMode = await input({
                                 message:
-                                    "Enter Caddy TLS Mode (API) (leave empty for SSL enabled, 'tls internal' for internal):",
+                                    "Enter Caddy TLS Mode (leave empty for SSL enabled, 'tls internal' for internal):",
                                 default: currentCaddyTlsApi || "",
                                 transformer: (value: string) => value.trim(),
                             });
@@ -3925,7 +3852,7 @@ if (import.meta.main) {
                             );
 
                             BunLogModule({
-                                message: `Caddy TLS Mode (API) set to: ${newTlsMode || "Default (SSL enabled)"} (persisted to CLI .env file)`,
+                                message: `Caddy TLS Mode set to: ${newTlsMode || "Default (SSL enabled)"} (persisted to CLI .env file)`,
                                 type: "success",
                                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -3938,7 +3865,7 @@ if (import.meta.main) {
 
                             BunLogModule({
                                 message:
-                                    "Caddy TLS Mode (API) variable unset (removed from CLI .env file)",
+                                    "Caddy TLS Mode variable unset (removed from CLI .env file)",
                                 type: "info",
                                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -3947,7 +3874,7 @@ if (import.meta.main) {
                     } else if (configOption === "caddy-tls-api") {
                         const action = await select({
                             message:
-                                "What would you like to do with Caddy TLS Mode (API)?\n",
+                                "What would you like to do with Caddy TLS Mode?\n",
 
                             pageSize: 15,
                             choices: [
@@ -3965,7 +3892,7 @@ if (import.meta.main) {
                         if (action === "set") {
                             const newTlsMode = await input({
                                 message:
-                                    "Enter Caddy TLS Mode (API) (leave empty for SSL enabled, 'tls internal' for internal):",
+                                    "Enter Caddy TLS Mode (leave empty for SSL enabled, 'tls internal' for internal):",
                                 default: currentCaddyTlsApi || "",
                                 transformer: (value: string) => value.trim(),
                             });
@@ -3977,7 +3904,7 @@ if (import.meta.main) {
                             );
 
                             BunLogModule({
-                                message: `Caddy TLS Mode (API) set to: ${newTlsMode || "Default (SSL enabled)"} (persisted to CLI .env file)`,
+                                message: `Caddy TLS Mode set to: ${newTlsMode || "Default (SSL enabled)"} (persisted to CLI .env file)`,
                                 type: "success",
                                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -3990,64 +3917,13 @@ if (import.meta.main) {
 
                             BunLogModule({
                                 message:
-                                    "Caddy TLS Mode (API) variable unset (removed from CLI .env file)",
+                                    "Caddy TLS Mode variable unset (removed from CLI .env file)",
                                 type: "info",
                                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
                         }
-                    } else if (configOption === "caddy-tls-app") {
-                        const action = await select({
-                            message:
-                                "What would you like to do with Caddy TLS Mode (APP)?\n",
 
-                            pageSize: 15,
-                            choices: [
-                                {
-                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyTlsApp || "Default (SSL enabled)"}`,
-                                    value: "set",
-                                },
-                                {
-                                    name: "Unset variable (remove from CLI .env)",
-                                    value: "unset",
-                                },
-                            ],
-                        });
-
-                        if (action === "set") {
-                            const newTlsMode = await input({
-                                message:
-                                    "Enter Caddy TLS Mode (APP) (leave empty for SSL enabled, 'tls internal' for internal CA or 'tls off' to disable):",
-                                default: currentCaddyTlsApp || "",
-                                transformer: (value: string) => value.trim(),
-                            });
-
-                            await EnvManager.setVariable(
-                                "VRCA_SERVER_SERVICE_CADDY_TLS_APP",
-                                newTlsMode,
-                                "cli",
-                            );
-
-                            BunLogModule({
-                                message: `Caddy TLS Mode (APP) set to: ${newTlsMode || "Default (SSL enabled)"} (persisted to CLI .env file)`,
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        } else if (action === "unset") {
-                            await EnvManager.unsetVariable(
-                                "VRCA_SERVER_SERVICE_CADDY_TLS_APP",
-                                "cli",
-                            );
-
-                            BunLogModule({
-                                message:
-                                    "Caddy TLS Mode (APP) variable unset (removed from CLI .env file)",
-                                type: "info",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        }
                     } else if (configOption === "user-asset-dir") {
                         const action = await select({
                             message:
@@ -4436,7 +4312,7 @@ if (import.meta.main) {
 
                         console.log(`\n\nCaddy (Reverse Proxy):`);
                         console.log(`  API Domain: ${currentCaddyDomainApi}`);
-                        console.log(`  App Domain: ${currentCaddyDomainApp}`);
+
                         console.log(`  Host Bind: ${currentCaddyHostBind}`);
                         console.log(
                             `  HTTP Port Bind: ${currentCaddyPortBindHttp}`,
@@ -4445,11 +4321,9 @@ if (import.meta.main) {
                             `  HTTPS Port Bind: ${currentCaddyPortBindHttps}`,
                         );
                         console.log(
-                            `  TLS Mode (API): ${currentCaddyTlsApi || "Default (SSL enabled)"}`,
+                            `  TLS Mode: ${currentCaddyTlsApi || "Default (SSL enabled)"}`,
                         );
-                        console.log(
-                            `  TLS Mode (APP): ${currentCaddyTlsApp || "Default (SSL enabled)"}`,
-                        );
+
 
                         console.log(`\n\nCLI Configuration:`);
                         console.log(

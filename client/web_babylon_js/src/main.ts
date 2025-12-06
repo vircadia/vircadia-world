@@ -5,10 +5,10 @@ import "@mdi/font/css/materialdesignicons.css";
 import "vuetify/styles";
 import "./assets/main.css";
 
-import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
 import { createPinia } from "pinia";
 // Vuetify setup
 import { createVuetify } from "vuetify";
+import router from "./router";
 
 // App setup
 const app = createApp(App);
@@ -71,51 +71,7 @@ app.config.warnHandler = (msg, _instance, trace) => {
 // Pinia setup
 const pinia = createPinia();
 app.use(pinia);
-
-// Auto-import and register Vue components from a configured directory under ./user
-const configuredUserComponentsDir =
-    clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_DIR?.trim() ||
-    "";
-
-// Normalize the configured directory: unify separators and strip leading/trailing segments
-const configuredUserComponentsDirNormalized = configuredUserComponentsDir
-    .replace(/\\/g, "/") // backslashes -> slashes
-    .replace(/^\.\//, "") // drop leading ./
-    .replace(/^user\//, "") // ensure it's relative to ./src/user
-    .replace(/^\/+|\/+$/g, ""); // trim leading/trailing slashes
-
-// Lazily glob all .vue files under ./user; we'll selectively import only those in the configured directory
-const allUserComponents = import.meta.glob("./user/**/*.vue");
-
-async function registerConfiguredUserComponents() {
-    for (const [path, loader] of Object.entries(allUserComponents)) {
-        const normalizedPath = path.replace(/^\.\/user\//, "");
-        const isInConfiguredDir =
-            configuredUserComponentsDirNormalized === "" ||
-            normalizedPath.startsWith(
-                `${configuredUserComponentsDirNormalized}/`,
-            );
-
-        if (!isInConfiguredDir) {
-            continue;
-        }
-
-        const componentName = path
-            .split("/")
-            .pop()
-            ?.replace(/\.\w+$/, "");
-
-        if (!componentName) {
-            continue;
-        }
-
-        const mod = await (loader as () => Promise<{ default?: unknown }>)();
-        const component = (mod as { default?: unknown }).default as any;
-        if (component) {
-            app.component(componentName, component);
-        }
-    }
-}
+app.use(router);
 
 // create and register Vuetify instance
 const vuetify = createVuetify({
@@ -125,8 +81,4 @@ const vuetify = createVuetify({
 });
 app.use(vuetify);
 
-// Register configured user components and then mount the app
-(async () => {
-    await registerConfiguredUserComponents();
-    app.mount("#app");
-})();
+app.mount("#app");

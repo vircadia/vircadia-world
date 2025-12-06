@@ -210,8 +210,8 @@
                                                     </v-snackbar>
                                                     <template v-if="providedScene">
                                                         <!-- Component Loader -->
-                                                        <template v-for="comp in availableComponents" :key="comp">
-                                                            <component :is="comp" :scene="providedScene"
+                                                        <template v-for="item in availableComponents" :key="item.name">
+                                                            <component :is="item.component" :scene="providedScene"
                                                                 :vircadia-world="vircadiaWorld" />
                                                         </template>
 
@@ -489,7 +489,11 @@ import {
     provide,
     ref,
     watch,
+    type Component,
+    type DefineComponent,
 } from "vue";
+import { useRoute } from "vue-router";
+import { useRouteComponents, type NamedComponent } from "@/composables/useUserComponents";
 import BabylonCanvas from "@/components/BabylonCanvas.vue";
 import BabylonInspector from "@/components/BabylonInspector.vue";
 import BabylonMic from "@/components/BabylonMic.vue";
@@ -1208,16 +1212,28 @@ function onWebRTCPermissions(payload: {
 // No local forwarding needed; using slot's onAnimationState
 
 // Component Loader
-const app = getCurrentInstance();
-const availableComponents = ref<
-    (string | ReturnType<typeof defineComponent>)[]
->([]);
+// const app = getCurrentInstance(); // No longer needed for globbal components
+const availableComponents = ref<NamedComponent[]>([]);
+const route = useRoute();
+const { getComponentsForRoute } = useRouteComponents();
 
+// Load components based on current route
+const updateComponents = () => {
+    availableComponents.value = getComponentsForRoute(route.path);
+};
+
+// Initial load
 onMounted(() => {
-    if (app) {
-        availableComponents.value = Object.keys(app.appContext.components);
-    }
+    updateComponents();
 });
+
+// Watch for route changes
+watch(
+    () => route.path,
+    () => {
+        updateComponents();
+    },
+);
 
 // Handle auth denial from provider by showing user feedback
 type AuthDeniedPayload = {

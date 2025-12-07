@@ -4035,7 +4035,10 @@ if (import.meta.main) {
                             `  Default Host: ${currentClientDefaultHost}`,
                         );
                         console.log(
-                            `  User Components Directory: ${currentUserComponentsDir}`,
+                            `  User Components Path (Relative): ${currentUserComponentsPathRelative}`,
+                        );
+                        console.log(
+                            `  User Components Path (Absolute): ${currentUserComponentsPathAbsolute || "Not set"}`,
                         );
 
                         console.log(`\n\nCaddy (Reverse Proxy):`);

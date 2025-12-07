@@ -516,6 +516,9 @@ export namespace Server_CLI {
                 serverConfiguration.VRCA_SERVER_SUPPRESS.toString(),
             VRCA_SERVER_ALLOWED_ORIGINS:
                 serverConfiguration.VRCA_SERVER_ALLOWED_ORIGINS.join(","),
+            VRCA_SERVER_DEFAULT_HOST: serverConfiguration.VRCA_SERVER_DEFAULT_HOST,
+            VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST,
 
             VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
@@ -555,11 +558,17 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS:
                 serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS.toString(),
             VRCA_SERVER_SERVICE_CADDY_DOMAIN:
-                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN,
+                (serverConfiguration.VRCA_SERVER_DEFAULT_HOST === "localhost" ||
+                 serverConfiguration.VRCA_SERVER_DEFAULT_HOST === "127.0.0.1") &&
+                !serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN.startsWith(
+                    "http",
+                )
+                    ? `http://${serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN}`
+                    : serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN,
             VRCA_SERVER_SERVICE_CADDY_EMAIL:
                 serverConfiguration.VRCA_SERVER_SERVICE_CADDY_EMAIL,
-            VRCA_SERVER_SERVICE_CADDY_TLS_API:
-                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_API,
+            VRCA_SERVER_SERVICE_CADDY_TLS_MODE:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_MODE,
 
 
             // API WS Manager
@@ -2842,62 +2851,36 @@ if (import.meta.main) {
                 while (continueConfiguring) {
                     // Get current values from environment (refresh each time)
                     // Read from client .env first, then process.env, then config defaults
-                    const currentWsUri =
+                    const currentClientDefaultHost =
                         (await EnvManager.getVariable(
-                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI",
+                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST",
                             "client",
                         )) ??
-                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI;
+                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST;
 
-                    const currentSslEnabled =
+                    const currentServerDefaultHost =
                         (await EnvManager.getVariable(
-                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL",
-                            "client",
-                        )) ??
-                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL;
-
-                    const currentRestAuthUri =
-                        (await EnvManager.getVariable(
-                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI",
-                            "client",
-                        )) ??
-                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI;
-
-                    const currentRestAuthUriUsingSsl =
-                        (await EnvManager.getVariable(
-                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL",
-                            "client",
-                        )) ??
-                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL;
-
-                    const currentRestAssetUri =
-                        (await EnvManager.getVariable(
-                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI",
-                            "client",
-                        )) ??
-                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI;
-
-                    const currentRestAssetUriUsingSsl =
-                        (await EnvManager.getVariable(
-                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL",
-                            "client",
-                        )) ??
-                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL;
-
-                    const currentUserComponentsDir =
-                        (await EnvManager.getVariable(
-                            "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_DIR",
-                            "client",
-                        )) ??
-                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_DIR;
-
-                    const currentCaddyDomainApi =
-                        (await EnvManager.getVariable(
-                            "VRCA_SERVER_SERVICE_CADDY_DOMAIN",
+                            "VRCA_SERVER_DEFAULT_HOST",
                             "cli",
-                        )) ||
-                        process.env.VRCA_SERVER_SERVICE_CADDY_DOMAIN ||
-                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN;
+                        )) ??
+                        process.env.VRCA_SERVER_DEFAULT_HOST ??
+                        serverConfiguration.VRCA_SERVER_DEFAULT_HOST;
+
+                    const currentUserComponentsPathRelative =
+                        (await EnvManager.getVariable(
+                            "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_RELATIVE",
+                            "client",
+                        )) ??
+                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_RELATIVE;
+
+                    const currentUserComponentsPathAbsolute =
+                        (await EnvManager.getVariable(
+                            "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_ABSOLUTE",
+                            "client",
+                        )) ??
+                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_ABSOLUTE;
+
+
 
 
 
@@ -2930,11 +2913,11 @@ if (import.meta.main) {
 
                     const currentCaddyTlsApi =
                         (await EnvManager.getVariable(
-                            "VRCA_SERVER_SERVICE_CADDY_TLS_API",
+                            "VRCA_SERVER_SERVICE_CADDY_TLS_MODE",
                             "cli",
                         )) ||
-                        process.env.VRCA_SERVER_SERVICE_CADDY_TLS_API ||
-                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_API;
+                        process.env.VRCA_SERVER_SERVICE_CADDY_TLS_MODE ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_MODE;
 
 
 
@@ -3033,56 +3016,27 @@ if (import.meta.main) {
                             new Separator("=== 🌐 Browser Client ==="),
                             new Separator("========================="),
                             {
-                                name: `User Browser Client -> Public World API WS URI\n    Current: ${currentWsUri}`,
-                                value: "world-api-ws-uri",
+                                name: `User Browser Client -> Default Host\n    Current: ${currentClientDefaultHost}`,
+                                value: "client-default-host",
                                 description:
-                                    "The default world API WS URI for the browser client to connect to.\nBy default, this should be the same as the Caddy API Domain.",
+                                    "The default host for the browser client to connect to.",
                             },
                             {
-                                name: `User Browser Client -> Public World API WS SSL Enabled\n    Current: ${currentSslEnabled}`,
-                                value: "world-api-ws-ssl",
+                                name: `User Browser Client -> User Components Path (Relative)\n    Current: ${currentUserComponentsPathRelative}`,
+                                value: "user-components-path-relative",
                                 description:
-                                    "Whether the world API WS uses SSL (HTTPS).",
+                                    "Directory path relative to 'src/user' used by the client to load user components.",
                             },
                             {
-                                name: `User Browser Client -> Public World API REST Auth URI\n    Current: ${currentRestAuthUri}`,
-                                value: "world-api-rest-auth-uri",
+                                name: `User Browser Client -> User Components Path (Absolute)\n    Current: ${currentUserComponentsPathAbsolute || "Not set"}\n    ${currentUserComponentsPathAbsolute ? "(Overrides Relative Path)" : ""}`,
+                                value: "user-components-path-absolute",
                                 description:
-                                    "The default world API REST Auth URI for the browser client to connect to.\nBy default, this should be the same as the Caddy API Domain.",
-                            },
-                            {
-                                name: `User Browser Client -> Public World API REST Auth SSL Enabled\n    Current: ${currentRestAuthUriUsingSsl}`,
-                                value: "world-api-rest-auth-ssl",
-                                description:
-                                    "Whether the world API REST Auth uses SSL (HTTPS).",
-                            },
-                            {
-                                name: `User Browser Client -> Public World API REST Asset URI\n    Current: ${currentRestAssetUri}`,
-                                value: "world-api-rest-asset-uri",
-                                description:
-                                    "The default world API REST Asset URI for the browser client to connect to.\nBy default, this should be the same as the Caddy API Domain.",
-                            },
-                            {
-                                name: `User Browser Client -> Public World API REST Asset SSL Enabled\n    Current: ${currentRestAssetUriUsingSsl}`,
-                                value: "world-api-rest-asset-ssl",
-                                description:
-                                    "Whether the world API REST Asset uses SSL (HTTPS).",
-                            },
-                            {
-                                name: `User Browser Client -> User Components Directory\n    Current: ${currentUserComponentsDir}`,
-                                value: "user-components-dir",
-                                description:
-                                    "Relative path under 'src/user' used by the client to load user components.",
+                                    "Absolute directory path used by the client to load user components. Takes precedence over relative path.",
                             },
                             new Separator("================================"),
                             new Separator("=== 🔄 Caddy (Reverse Proxy) ==="),
                             new Separator("================================"),
-                            {
-                                name: `Caddy Public World API Domain\n    Current: ${currentCaddyDomainApi}`,
-                                value: "caddy-domain-api",
-                                description:
-                                    "The public domain for the world API.",
-                            },
+
 
                             {
                                 name: `Caddy Container Host Bind\n    Current: ${currentCaddyHostBind}`,
@@ -3163,16 +3117,21 @@ if (import.meta.main) {
                                 description:
                                     "The voice to use for Groq Text-to-Speech.",
                             },
+
+                            new Separator("=================="),
+                            new Separator("=== 🖥️ Server ==="),
+                            new Separator("=================="),
+                            {
+                                name: `Server -> Default Host\n    Current: ${currentServerDefaultHost}`,
+                                value: "server-default-host",
+                                description:
+                                    "The default public host for the server.",
+                            },
                             new Separator("========================"),
                             new Separator(">>>>>> ⚙️ Actions <<<<<<"),
                             new Separator("========================"),
                             {
-                                name: "Show egress points",
-                                value: "show-egress",
-                                description:
-                                    "Show the egress points to setup reverse proxies.",
-                            },
-                            {
+
                                 name: "View all current configuration",
                                 value: "view-all",
                             },
@@ -3189,15 +3148,15 @@ if (import.meta.main) {
                         break;
                     }
 
-                    if (configOption === "world-api-ws-uri") {
+                    if (configOption === "client-default-host") {
                         const action = await select({
                             message:
-                                "What would you like to do with the World API WS URI?\n",
+                                "What would you like to do with User Browser Client Default Host?\n",
 
                             pageSize: 15,
                             choices: [
                                 {
-                                    name: `Set variable in client .env\n    Current: ${currentWsUri}`,
+                                    name: `Set variable in client .env\n    Current: ${currentClientDefaultHost}`,
                                     value: "set",
                                 },
                                 {
@@ -3208,148 +3167,98 @@ if (import.meta.main) {
                         });
 
                         if (action === "set") {
-                            const newUri = await input({
-                                message: "Enter World API WS URI:",
-                                default: currentWsUri,
+                            const newHost = await input({
+                                message: "Enter User Browser Client Default Host:",
+                                default: currentClientDefaultHost,
                                 transformer: (value: string) => value.trim(),
                             });
 
                             await EnvManager.setVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI",
-                                newUri,
+                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST",
+                                newHost,
                                 "client",
                             );
 
                             BunLogModule({
-                                message: `World API WS URI set to: ${newUri} (persisted to client .env file)`,
+                                message: `User Browser Client Default Host set to: ${newHost} (persisted to client .env file)`,
                                 type: "success",
                                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
                         } else if (action === "unset") {
                             await EnvManager.unsetVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI",
+                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST",
                                 "client",
                             );
 
                             BunLogModule({
                                 message:
-                                    "World API WS URI variable unset (removed from client .env file)",
+                                    "User Browser Client Default Host variable unset (removed from client .env file)",
                                 type: "success",
                                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
                         }
-                    } else if (configOption === "world-api-rest-auth-uri") {
+                    } else if (configOption === "server-default-host") {
                         const action = await select({
                             message:
-                                "What would you like to do with World API REST Auth URI?\n",
+                                "What would you like to do with Server Default Host?\n",
 
                             pageSize: 15,
                             choices: [
                                 {
-                                    name: `Set variable in client .env\n    Current: ${currentRestAuthUri}`,
+                                    name: `Set variable in CLI .env\n    Current: ${currentServerDefaultHost}`,
                                     value: "set",
                                 },
                                 {
-                                    name: "Unset variable (remove from client .env)",
+                                    name: "Unset variable (remove from CLI .env)",
                                     value: "unset",
                                 },
                             ],
                         });
 
                         if (action === "set") {
-                            const newUri = await input({
-                                message: "Enter World API REST Auth URI:",
-                                default: currentRestAuthUri,
+                            const newHost = await input({
+                                message: "Enter Server Default Host:",
+                                default: currentServerDefaultHost,
                                 transformer: (value: string) => value.trim(),
                             });
 
                             await EnvManager.setVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI",
-                                newUri,
-                                "client",
+                                "VRCA_SERVER_DEFAULT_HOST",
+                                newHost,
+                                "cli",
                             );
 
                             BunLogModule({
-                                message: `World API REST Auth URI set to: ${newUri} (persisted to client .env file)`,
+                                message: `Server Default Host set to: ${newHost} (persisted to CLI .env file)`,
                                 type: "success",
                                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
                         } else if (action === "unset") {
                             await EnvManager.unsetVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI",
-                                "client",
+                                "VRCA_SERVER_DEFAULT_HOST",
+                                "cli",
                             );
 
                             BunLogModule({
                                 message:
-                                    "World API REST Auth URI variable unset (removed from client .env file)",
+                                    "Server Default Host variable unset (removed from CLI .env file)",
                                 type: "success",
                                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
                         }
-                    } else if (configOption === "world-api-rest-asset-uri") {
+                    } else if (configOption === "user-components-path-relative") {
                         const action = await select({
                             message:
-                                "What would you like to do with World API REST Asset URI?\n",
+                                "What would you like to do with User Components Path (Relative)?\n",
 
                             pageSize: 15,
                             choices: [
                                 {
-                                    name: `Set variable in client .env\n    Current: ${currentRestAssetUri}`,
-                                    value: "set",
-                                },
-                                {
-                                    name: "Unset variable (remove from client .env)",
-                                    value: "unset",
-                                },
-                            ],
-                        });
-
-                        if (action === "set") {
-                            const newUri = await input({
-                                message: "Enter World API REST Asset URI:",
-                                default: currentRestAssetUri,
-                                transformer: (value: string) => value.trim(),
-                            });
-
-                            await EnvManager.setVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI",
-                                newUri,
-                                "client",
-                            );
-
-                            BunLogModule({
-                                message: `World API REST Asset URI set to: ${newUri} (persisted to client .env file)`,
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        } else if (action === "unset") {
-                            await EnvManager.unsetVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI",
-                                "client",
-                            );
-
-                            BunLogModule({
-                                message: `World API REST Asset URI variable unset (removed from client .env file)`,
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        }
-                    } else if (configOption === "user-components-dir") {
-                        const action = await select({
-                            message:
-                                "What would you like to do with User Components Directory?\n",
-
-                            pageSize: 15,
-                            choices: [
-                                {
-                                    name: `Set variable in client .env\n    Current: ${currentUserComponentsDir}`,
+                                    name: `Set variable in client .env\n    Current: ${currentUserComponentsPathRelative}`,
                                     value: "set",
                                 },
                                 {
@@ -3363,31 +3272,83 @@ if (import.meta.main) {
                             const newDir = await input({
                                 message:
                                     "Enter User Components Directory path (relative to src/user):",
-                                default: currentUserComponentsDir,
+                                default: currentUserComponentsPathRelative,
                                 transformer: (value: string) => value.trim(),
                             });
 
                             await EnvManager.setVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_DIR",
+                                "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_RELATIVE",
                                 newDir,
                                 "client",
                             );
 
                             BunLogModule({
-                                message: `User Components Directory set to: ${newDir} (persisted to client .env file)`,
+                                message: `User Components Path (Relative) set to: ${newDir} (persisted to client .env file)`,
                                 type: "success",
                                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
                         } else if (action === "unset") {
                             await EnvManager.unsetVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_DIR",
+                                "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_RELATIVE",
                                 "client",
                             );
 
                             BunLogModule({
                                 message:
-                                    "User Components Directory variable unset (removed from client .env file)",
+                                    "User Components Path (Relative) variable unset (removed from client .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "user-components-path-absolute") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with User Components Path (Absolute)?\n",
+
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in client .env\n    Current: ${currentUserComponentsPathAbsolute}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from client .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newDir = await input({
+                                message:
+                                    "Enter User Components Directory path (absolute):",
+                                default: currentUserComponentsPathAbsolute,
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_ABSOLUTE",
+                                newDir,
+                                "client",
+                            );
+
+                            BunLogModule({
+                                message: `User Components Path (Absolute) set to: ${newDir} (persisted to client .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_ABSOLUTE",
+                                "client",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "User Components Path (Absolute) variable unset (removed from client .env file)",
                                 type: "success",
                                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -3447,224 +3408,6 @@ if (import.meta.main) {
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
                         }
-                    } else if (configOption === "world-api-ws-ssl") {
-                        const action = await select({
-                            message:
-                                "What would you like to do with World API SSL?\n",
-
-                            pageSize: 15,
-                            choices: [
-                                {
-                                    name: `Set variable in client .env\n    Current: ${currentSslEnabled}`,
-                                    value: "set",
-                                },
-                                {
-                                    name: "Unset variable (remove from client .env)",
-                                    value: "unset",
-                                },
-                            ],
-                        });
-
-                        if (action === "set") {
-                            const newSslEnabled = await select({
-                                message: "Enable SSL for World API?",
-                                choices: [
-                                    { name: "Yes", value: "true" },
-                                    { name: "No", value: "false" },
-                                ],
-                                default: currentSslEnabled ? "true" : "false",
-                            });
-
-                            await EnvManager.setVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL",
-                                newSslEnabled,
-                                "client",
-                            );
-
-                            BunLogModule({
-                                message: `World API SSL set to: ${newSslEnabled} (persisted to client .env file)`,
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        } else if (action === "unset") {
-                            await EnvManager.unsetVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL",
-                                "client",
-                            );
-
-                            BunLogModule({
-                                message:
-                                    "World API SSL variable unset (removed from client .env file)",
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        }
-                    } else if (configOption === "world-api-rest-auth-ssl") {
-                        const action = await select({
-                            message:
-                                "What would you like to do with World API REST Auth SSL?\n",
-
-                            pageSize: 15,
-                            choices: [
-                                {
-                                    name: `Set variable in client .env\n    Current: ${currentRestAuthUriUsingSsl}`,
-                                    value: "set",
-                                },
-                                {
-                                    name: "Unset variable (remove from client .env)",
-                                    value: "unset",
-                                },
-                            ],
-                        });
-
-                        if (action === "set") {
-                            const newSslEnabled = await select({
-                                message: "Enable SSL for REST Auth API?",
-                                choices: [
-                                    { name: "Yes", value: "true" },
-                                    { name: "No", value: "false" },
-                                ],
-                                default: currentRestAuthUriUsingSsl
-                                    ? "true"
-                                    : "false",
-                            });
-
-                            await EnvManager.setVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL",
-                                newSslEnabled,
-                                "client",
-                            );
-
-                            BunLogModule({
-                                message: `World API REST Auth SSL set to: ${newSslEnabled} (persisted to client .env file)`,
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        } else if (action === "unset") {
-                            await EnvManager.unsetVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL",
-                                "client",
-                            );
-
-                            BunLogModule({
-                                message:
-                                    "World API REST Auth SSL variable unset (removed from client .env file)",
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        }
-                    } else if (configOption === "world-api-rest-asset-ssl") {
-                        const action = await select({
-                            message:
-                                "What would you like to do with World API REST Asset SSL?\n",
-
-                            pageSize: 15,
-                            choices: [
-                                {
-                                    name: `Set variable in client .env\n    Current: ${currentRestAssetUriUsingSsl}`,
-                                    value: "set",
-                                },
-                                {
-                                    name: "Unset variable (remove from client .env)",
-                                    value: "unset",
-                                },
-                            ],
-                        });
-
-                        if (action === "set") {
-                            const newSslEnabled = await select({
-                                message: "Enable SSL for REST Asset API?",
-                                choices: [
-                                    { name: "Yes", value: "true" },
-                                    { name: "No", value: "false" },
-                                ],
-                                default: currentRestAssetUriUsingSsl
-                                    ? "true"
-                                    : "false",
-                            });
-
-                            await EnvManager.setVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL",
-                                newSslEnabled,
-                                "client",
-                            );
-
-                            BunLogModule({
-                                message: `World API REST Asset SSL set to: ${newSslEnabled} (persisted to client .env file)`,
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        } else if (action === "unset") {
-                            await EnvManager.unsetVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL",
-                                "client",
-                            );
-
-                            BunLogModule({
-                                message:
-                                    "World API REST Asset SSL variable unset (removed from client .env file)",
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        }
-                    } else if (configOption === "caddy-domain-api") {
-                        const action = await select({
-                            message:
-                                "What would you like to do with Caddy API Domain?\n",
-
-                            pageSize: 15,
-                            choices: [
-                                {
-                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyDomainApi}`,
-                                    value: "set",
-                                },
-                                {
-                                    name: "Unset variable (remove from CLI .env)",
-                                    value: "unset",
-                                },
-                            ],
-                        });
-
-                        if (action === "set") {
-                            const newDomain = await input({
-                                message: "Enter Caddy API Domain:",
-                                default: currentCaddyDomainApi,
-                                transformer: (value: string) => value.trim(),
-                            });
-
-                            await EnvManager.setVariable(
-                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN",
-                                newDomain,
-                                "cli",
-                            );
-
-                            BunLogModule({
-                                message: `Caddy API Domain set to: ${newDomain} (persisted to CLI .env file)`,
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        } else if (action === "unset") {
-                            await EnvManager.unsetVariable(
-                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN",
-                                "cli",
-                            );
-
-                            BunLogModule({
-                                message:
-                                    "Caddy API Domain variable unset (removed from CLI .env file)",
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        }
-
                     } else if (configOption === "caddy-host-bind") {
                         const action = await select({
                             message:
@@ -3846,7 +3589,7 @@ if (import.meta.main) {
                             });
 
                             await EnvManager.setVariable(
-                                "VRCA_SERVER_SERVICE_CADDY_TLS_API",
+                                "VRCA_SERVER_SERVICE_CADDY_TLS_MODE",
                                 newTlsMode,
                                 "cli",
                             );
@@ -3859,7 +3602,7 @@ if (import.meta.main) {
                             });
                         } else if (action === "unset") {
                             await EnvManager.unsetVariable(
-                                "VRCA_SERVER_SERVICE_CADDY_TLS_API",
+                                "VRCA_SERVER_SERVICE_CADDY_TLS_MODE",
                                 "cli",
                             );
 
@@ -3898,7 +3641,7 @@ if (import.meta.main) {
                             });
 
                             await EnvManager.setVariable(
-                                "VRCA_SERVER_SERVICE_CADDY_TLS_API",
+                                "VRCA_SERVER_SERVICE_CADDY_TLS_MODE",
                                 newTlsMode,
                                 "cli",
                             );
@@ -3911,7 +3654,7 @@ if (import.meta.main) {
                             });
                         } else if (action === "unset") {
                             await EnvManager.unsetVariable(
-                                "VRCA_SERVER_SERVICE_CADDY_TLS_API",
+                                "VRCA_SERVER_SERVICE_CADDY_TLS_MODE",
                                 "cli",
                             );
 
@@ -4279,8 +4022,6 @@ if (import.meta.main) {
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
                         }
-                    } else if (configOption === "show-egress") {
-                        await Server_CLI.printEgressInfo();
                     } else if (configOption === "view-all") {
                         BunLogModule({
                             message: "Current Configuration:",
@@ -4290,28 +4031,15 @@ if (import.meta.main) {
                         });
 
                         console.log(`\nBrowser Client Configuration:`);
-                        console.log(`  World API WS URI: ${currentWsUri}`);
                         console.log(
-                            `  World API WS SSL Enabled: ${currentSslEnabled}`,
-                        );
-                        console.log(
-                            `  World API REST Auth URI: ${currentRestAuthUri}`,
-                        );
-                        console.log(
-                            `  World API REST Auth SSL Enabled: ${currentRestAuthUriUsingSsl}`,
-                        );
-                        console.log(
-                            `  World API REST Asset URI: ${currentRestAssetUri}`,
-                        );
-                        console.log(
-                            `  World API REST Asset SSL Enabled: ${currentRestAssetUriUsingSsl}`,
+                            `  Default Host: ${currentClientDefaultHost}`,
                         );
                         console.log(
                             `  User Components Directory: ${currentUserComponentsDir}`,
                         );
 
                         console.log(`\n\nCaddy (Reverse Proxy):`);
-                        console.log(`  API Domain: ${currentCaddyDomainApi}`);
+                        console.log(`  Default Public Host: ${currentServerDefaultHost}`);
 
                         console.log(`  Host Bind: ${currentCaddyHostBind}`);
                         console.log(

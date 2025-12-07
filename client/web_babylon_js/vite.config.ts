@@ -13,6 +13,20 @@ import packageJson from "./package.json";
 export default defineConfig(({ command }) => {
     const isProd = command === "build";
 
+    const userComponentsPathAbsolute =
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_ABSOLUTE;
+    const userComponentsPathRelative =
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_RELATIVE;
+
+    const resolvedUserComponentsDir = userComponentsPathAbsolute
+        ? userComponentsPathAbsolute
+        : fileURLToPath(
+              new URL(
+                  `./src/user/${userComponentsPathRelative}`,
+                  import.meta.url,
+              ),
+          );
+
     return {
         css: {
             preprocessorOptions: {
@@ -74,6 +88,23 @@ export default defineConfig(({ command }) => {
             __APP_TITLE__: JSON.stringify(
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE,
             ),
+            __USER_COMPONENTS_ROOT__: JSON.stringify(resolvedUserComponentsDir),
+            __USER_COMPONENTS_RELATIVE_PATH__: JSON.stringify(
+                resolvedUserComponentsDir.startsWith(
+                    fileURLToPath(new URL(".", import.meta.url)).replace(
+                        /\/$/,
+                        "",
+                    ),
+                )
+                    ? resolvedUserComponentsDir.replace(
+                          fileURLToPath(new URL(".", import.meta.url)).replace(
+                              /\/$/,
+                              "",
+                          ),
+                          "",
+                      )
+                    : "",
+            ),
             global: "globalThis",
         },
         resolve: {
@@ -82,6 +113,7 @@ export default defineConfig(({ command }) => {
                 "@schemas": fileURLToPath(
                     new URL("./src/schemas.ts", import.meta.url),
                 ),
+                "@user-components": resolvedUserComponentsDir,
             },
         },
         server: {

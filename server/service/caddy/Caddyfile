@@ -2,8 +2,8 @@
   email {$CADDY_EMAIL}
 }
 
-{$CADDY_DOMAIN_API} {
-  {$CADDY_TLS_API}
+{$CADDY_DOMAIN} {
+  {$CADDY_TLS_MODE}
   encode zstd gzip
 
   # 1. Handle API requests

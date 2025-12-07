@@ -1,0 +1,24 @@
+{
+  email {$CADDY_EMAIL}
+}
+
+{$CADDY_DOMAIN} {
+  {$CADDY_TLS_MODE}
+  encode zstd gzip
+
+  # 1. Handle API requests
+  handle /world/rest/* {
+    reverse_proxy /world/rest/ws* http://{$CADDY_UPSTREAM_API_WS}
+    reverse_proxy /world/rest/auth* http://{$CADDY_UPSTREAM_API_AUTH}
+    reverse_proxy /world/rest/asset* http://{$CADDY_UPSTREAM_API_ASSET}
+    reverse_proxy /world/rest/inference* http://{$CADDY_UPSTREAM_API_INFERENCE}
+  }
+
+  # 2. Handle everything else (Client App)
+  handle {
+    root * /srv/app
+    try_files {path} /index.html
+    file_server
+  }
+}
+

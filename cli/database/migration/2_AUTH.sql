@@ -108,7 +108,14 @@ CREATE TABLE auth.auth_providers (
     provider__auth_url TEXT,                        -- OAuth authorization endpoint
     provider__token_url TEXT,                       -- OAuth token endpoint
     provider__userinfo_url TEXT,                    -- OAuth userinfo endpoint
+    provider__end_session_url TEXT,                 -- OIDC end-session endpoint (logout)
+    provider__revocation_url TEXT,                  -- RFC 7009 token revocation endpoint
+    provider__device_authorization_url TEXT,        -- OAuth 2.0 Device Authorization Grant endpoint
+    provider__discovery_url TEXT,                   -- OIDC discovery document URL
     provider__scope TEXT[],                         -- Required OAuth scopes
+    provider__redirect_uris TEXT[],                 -- Allowed redirect URIs for OAuth
+    provider__issuer TEXT,                          -- Identity provider issuer URL
+    provider__jwks_uri TEXT,                        -- JSON Web Key Set endpoint for token validation
     provider__metadata JSONB,                       -- Additional provider-specific configuration
     provider__icon_url TEXT,                        -- URL to provider's icon
     provider__jwt_secret TEXT NOT NULL,             -- JWT signing secret for this provider
@@ -116,7 +123,13 @@ CREATE TABLE auth.auth_providers (
     provider__session_duration_jwt_string TEXT NOT NULL DEFAULT '24h',
     provider__session_duration_ms BIGINT NOT NULL DEFAULT 86400000,
     provider__session_max_age_ms BIGINT NOT NULL DEFAULT 86400000,
-    provider__session_inactive_expiry_ms BIGINT NOT NULL DEFAULT 3600000
+    provider__session_inactive_expiry_ms BIGINT NOT NULL DEFAULT 3600000,
+    
+    -- Default permissions for sync groups (array of sync group names that have permission)
+    provider__default_permissions__can_read TEXT[] NOT NULL DEFAULT '{}',
+    provider__default_permissions__can_insert TEXT[] NOT NULL DEFAULT '{}',
+    provider__default_permissions__can_update TEXT[] NOT NULL DEFAULT '{}',
+    provider__default_permissions__can_delete TEXT[] NOT NULL DEFAULT '{}'
 ) INHERITS (auth._template);
 ALTER TABLE auth.auth_providers ENABLE ROW LEVEL SECURITY;
 
@@ -154,17 +167,34 @@ ALTER TABLE auth.agent_sessions ADD CONSTRAINT agent_sessions_auth__provider_nam
 CREATE TABLE auth.sync_groups (
     general__sync_group TEXT PRIMARY KEY,
     general__description TEXT,
-    
+
     server__tick__rate_ms INTEGER NOT NULL,
     server__tick__max_tick_count_buffer INTEGER NOT NULL,
-    
-    client__render_delay_ms INTEGER NOT NULL,
-    client__max_prediction_time_ms INTEGER NOT NULL,
-    client__poll__rate_ms INTEGER NOT NULL,
-    
-    network__packet_timing_variance_ms INTEGER NOT NULL
+    server__tick__state__enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    server__tick__reflect__enabled BOOLEAN NOT NULL DEFAULT TRUE
 ) INHERITS (auth._template);
 ALTER TABLE auth.sync_groups ENABLE ROW LEVEL SECURITY;
+
+-- OAuth State Cache Table (for PKCE verifiers and other temporary OAuth data)
+CREATE TABLE auth.oauth_state_cache (
+    cache_key TEXT PRIMARY KEY,
+    cache_value TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE auth.oauth_state_cache ENABLE ROW LEVEL SECURITY;
+
+-- Create an index for cleanup of expired entries
+CREATE INDEX idx_oauth_state_cache_expires_at ON auth.oauth_state_cache(expires_at);
+
+-- Function to clean up expired OAuth state cache entries
+CREATE OR REPLACE FUNCTION auth.cleanup_expired_oauth_state_cache()
+RETURNS void AS $$
+BEGIN
+    DELETE FROM auth.oauth_state_cache
+    WHERE expires_at < NOW();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Sync Group Roles Table
 CREATE TABLE auth.agent_sync_group_roles (
@@ -181,6 +211,7 @@ ALTER TABLE auth.agent_sync_group_roles ENABLE ROW LEVEL SECURITY;
 -- ============================================================================
 -- 5. UTILITY AND TRIGGER FUNCTIONS
 -- ============================================================================
+
 -- Audit Column Update Function
 CREATE OR REPLACE FUNCTION auth.update_audit_columns()
 RETURNS TRIGGER AS $$
@@ -279,6 +310,20 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Notify Bun listeners when an agent's sync group roles change
+CREATE OR REPLACE FUNCTION auth.fn_notify_role_change()
+RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify(
+        'auth_roles_changed',
+        json_build_object(
+            'agentId', COALESCE(NEW.auth__agent_id, OLD.auth__agent_id)
+        )::text
+    );
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- ============================================================================
 -- 6. AUTHENTICATION FUNCTIONS
 -- ============================================================================
@@ -307,6 +352,42 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Authorization helper: boolean check whether agent can read a sync group
+CREATE OR REPLACE FUNCTION auth.can_read_sync_group(
+    p_agent_id UUID,
+    p_group TEXT
+) RETURNS boolean AS $$
+    SELECT
+        EXISTS (
+            SELECT 1
+            FROM auth.agent_profiles ap
+            WHERE ap.general__agent_profile_id = p_agent_id
+              AND ap.auth__is_admin = true
+        )
+    OR EXISTS (
+            SELECT 1
+            FROM auth.agent_sync_group_roles r
+            WHERE r.auth__agent_id = p_agent_id
+              AND r.group__sync = p_group
+              AND r.permissions__can_read = true
+        );
+$$ LANGUAGE sql STABLE;
+
+
+-- Authorization helper: fetch all sync groups readable by an agent
+CREATE OR REPLACE FUNCTION auth.get_readable_groups(
+    p_agent_id UUID
+) RETURNS TABLE (group__sync TEXT) AS $$
+    SELECT r.group__sync
+    FROM auth.agent_sync_group_roles r
+    WHERE r.auth__agent_id = p_agent_id AND r.permissions__can_read = true
+    UNION
+    SELECT sg.general__sync_group
+    FROM auth.agent_profiles ap
+    CROSS JOIN auth.sync_groups sg
+    WHERE ap.general__agent_profile_id = p_agent_id AND ap.auth__is_admin = true;
+$$ LANGUAGE sql STABLE;
+
 -- ============================================================================
 -- 7. SESSION MANAGEMENT FUNCTIONS
 -- ============================================================================
@@ -323,19 +404,19 @@ BEGIN
     WHERE general__session_id = p_session_id;
     
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Session not found for id: %', p_session_id;
+        RAISE EXCEPTION '[Validate Session ID] Session not found for id: %', p_session_id;
     END IF;
     
     IF NOT v_session.session__is_active THEN
-        RAISE EXCEPTION 'Session % is inactive', p_session_id;
+        RAISE EXCEPTION '[Validate Session ID] Session % is inactive', p_session_id;
     END IF;
     
     IF v_session.session__expires_at < NOW() THEN
-        RAISE EXCEPTION 'Session % has expired on %', p_session_id, v_session.session__expires_at;
+        RAISE EXCEPTION '[Validate Session ID] Session % has expired on %', p_session_id, v_session.session__expires_at;
     END IF;
     
     IF p_session_token IS NOT NULL AND v_session.session__jwt != p_session_token THEN
-        RAISE EXCEPTION 'Session token mismatch for session id: %', p_session_id;
+        RAISE EXCEPTION '[Validate Session ID] Session token mismatch for session id: %', p_session_id;
     END IF;
     
     RETURN v_session.auth__agent_id;
@@ -387,14 +468,14 @@ BEGIN
       AND session__expires_at > NOW();
     
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Session not found for id: %', p_session_id;
+        RAISE EXCEPTION '[Update Session Heartbeat] Session not found for id: %', p_session_id;
     END IF;
     
     -- Check permissions (user's own session, admin, or system)
     IF v_agent_id != auth.current_agent_id() 
        AND NOT auth.is_admin_agent() 
        AND NOT auth.is_system_agent() THEN
-        RAISE EXCEPTION 'Insufficient permissions to update session: %', p_session_id;
+        RAISE EXCEPTION '[Update Session Heartbeat] Insufficient permissions to update session: %', p_session_id;
     END IF;
     
     -- Update the last seen timestamp
@@ -420,14 +501,14 @@ BEGIN
       AND session__expires_at > NOW();
     
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Session not found for id: %', p_session_id;
+        RAISE EXCEPTION '[Invalidate Session] Session not found for id: %', p_session_id;
     END IF;
     
     -- Check permissions (user's own session, admin, or system)
     IF v_agent_id != auth.current_agent_id() 
        AND NOT auth.is_admin_agent() 
        AND NOT auth.is_system_agent() THEN
-        RAISE EXCEPTION 'Insufficient permissions to invalidate session: %', p_session_id;
+        RAISE EXCEPTION '[Invalidate Session] Insufficient permissions to invalidate session: %', p_session_id;
     END IF;
     
     -- Update the session to be inactive
@@ -516,6 +597,13 @@ CREATE TRIGGER refresh_active_sessions_view_on_role_change
     FOR EACH STATEMENT
     EXECUTE FUNCTION auth.refresh_active_sessions_view_trigger();
 
+-- Notify trigger for role changes (per-row) to refresh in-memory ACLs in Bun
+DROP TRIGGER IF EXISTS notify_role_change ON auth.agent_sync_group_roles;
+CREATE TRIGGER notify_role_change
+    AFTER INSERT OR UPDATE OR DELETE ON auth.agent_sync_group_roles
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.fn_notify_role_change();
+
 -- Audit Trail Triggers
 CREATE TRIGGER update_agent_profile_timestamps
     BEFORE UPDATE ON auth.agent_profiles
@@ -566,18 +654,16 @@ ON CONFLICT (general__agent_profile_id) DO NOTHING;
 INSERT INTO auth.sync_groups (
     general__sync_group,
     general__description,
+    server__tick__state__enabled,
+    server__tick__reflect__enabled,
     server__tick__rate_ms,
-    server__tick__max_tick_count_buffer,
-    client__render_delay_ms,
-    client__max_prediction_time_ms,
-    client__poll__rate_ms,
-    network__packet_timing_variance_ms
+    server__tick__max_tick_count_buffer
 ) VALUES
     -- Public zone
-    ('public.REALTIME', 'Public realtime entities', 100, 50, 50, 100, 100, 25),
-    ('public.NORMAL', 'Public normal-priority entities', 200, 20, 100, 150, 200, 50),
-    ('public.BACKGROUND', 'Public background entities', 1000, 10, 200, 300, 1000, 100),
-    ('public.STATIC', 'Public static entities', 5000, 5, 500, 1000, 5000, 250);
+    ('public.REALTIME', 'Public realtime entities', false, true, 20, 50),
+    ('public.NORMAL', 'Public normal-priority entities', false, true, 50, 20),
+    ('public.BACKGROUND', 'Public background entities', false, true, 200, 10),
+    ('public.STATIC', 'Public static entities', false, true, 500, 5);
 
 -- Add system provider to auth_providers table if not exists
 INSERT INTO auth.auth_providers (
@@ -589,7 +675,11 @@ INSERT INTO auth.auth_providers (
     provider__session_duration_jwt_string,
     provider__session_duration_ms,
     provider__session_max_age_ms,
-    provider__session_inactive_expiry_ms
+    provider__session_inactive_expiry_ms,
+    provider__default_permissions__can_read,
+    provider__default_permissions__can_insert,
+    provider__default_permissions__can_update,
+    provider__default_permissions__can_delete
 ) VALUES (
     'system',
     'System Authentication',
@@ -599,7 +689,11 @@ INSERT INTO auth.auth_providers (
     '24h',
     86400000,
     86400000,
-    3600000
+    3600000,
+    ARRAY['public.REALTIME', 'public.NORMAL', 'public.BACKGROUND', 'public.STATIC'], -- System provider has full permissions for all sync groups
+    ARRAY['public.REALTIME', 'public.NORMAL', 'public.BACKGROUND', 'public.STATIC'], -- System provider has full permissions for all sync groups
+    ARRAY['public.REALTIME', 'public.NORMAL', 'public.BACKGROUND', 'public.STATIC'], -- System provider has full permissions for all sync groups
+    ARRAY['public.REALTIME', 'public.NORMAL', 'public.BACKGROUND', 'public.STATIC']  -- System provider has full permissions for all sync groups
 ) ON CONFLICT (provider__name) DO NOTHING;
 
 -- Add anonymous provider to auth_providers table if not exists
@@ -612,7 +706,11 @@ INSERT INTO auth.auth_providers (
     provider__session_duration_jwt_string,
     provider__session_duration_ms,
     provider__session_max_age_ms,
-    provider__session_inactive_expiry_ms
+    provider__session_inactive_expiry_ms,
+    provider__default_permissions__can_read,
+    provider__default_permissions__can_insert,
+    provider__default_permissions__can_update,
+    provider__default_permissions__can_delete
 ) VALUES (
     'anon',
     'Anonymous Authentication',
@@ -622,7 +720,11 @@ INSERT INTO auth.auth_providers (
     '24h',
     86400000,
     86400000,
-    3600000
+    3600000,
+    ARRAY['public.REALTIME', 'public.NORMAL', 'public.BACKGROUND', 'public.STATIC'],   -- Anonymous users can read public content by default
+    ARRAY['public.REALTIME', 'public.NORMAL', 'public.BACKGROUND', 'public.STATIC'],   -- Anonymous users can insert public content by default
+    ARRAY['public.REALTIME', 'public.NORMAL', 'public.BACKGROUND', 'public.STATIC'],   -- Anonymous users can update public content by default
+    ARRAY['public.REALTIME', 'public.NORMAL', 'public.BACKGROUND', 'public.STATIC']    -- Anonymous users can delete public content by default
 ) ON CONFLICT (provider__name) DO NOTHING;
 
 -- ============================================================================
@@ -754,6 +856,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_auth_providers TO vircadia_ag
 GRANT SELECT, INSERT, UPDATE, DELETE ON auth.sync_groups TO vircadia_agent_proxy;
 GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sync_group_roles TO vircadia_agent_proxy;
 GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sessions TO vircadia_agent_proxy;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.oauth_state_cache TO vircadia_agent_proxy;
 
 -- Grant view permissions
 GRANT SELECT ON auth.active_sync_group_sessions TO vircadia_agent_proxy;
@@ -774,3 +877,5 @@ GRANT EXECUTE ON FUNCTION auth.enforce_session_limit() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.update_session_heartbeat_from_session_id(UUID) TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.update_profile_last_seen() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.invalidate_session_from_session_id(UUID) TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.can_read_sync_group(UUID, TEXT) TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.get_readable_groups(UUID) TO vircadia_agent_proxy;

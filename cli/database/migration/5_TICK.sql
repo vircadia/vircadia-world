@@ -71,10 +71,6 @@ CREATE TABLE tick.entity_metadata_states (
     -- Override the primary key
     CONSTRAINT entity_metadata_states_pkey PRIMARY KEY (general__metadata_state_id),
 
-    -- Add foreign key constraint for sync_group
-    CONSTRAINT entity_metadata_states_sync_group_fkey FOREIGN KEY (group__sync)
-        REFERENCES auth.sync_groups(general__sync_group),
-
     -- Add foreign key constraint to world_ticks with cascade delete
     CONSTRAINT entity_metadata_states_tick_fkey FOREIGN KEY (general__tick_id)
         REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
@@ -101,7 +97,6 @@ CREATE INDEX idx_entity_states_tick_entity_name ON tick.entity_states (general__
 -- 3.3 ENTITY METADATA STATES INDEXES
 CREATE INDEX entity_metadata_states_lookup_idx ON tick.entity_metadata_states (general__entity_name, metadata__key, general__tick_id);
 CREATE INDEX entity_metadata_states_tick_idx ON tick.entity_metadata_states (general__tick_id);
-CREATE INDEX entity_metadata_states_sync_group_tick_idx ON tick.entity_metadata_states (group__sync, general__tick_id DESC);
 CREATE INDEX idx_entity_metadata_states_key ON tick.entity_metadata_states (metadata__key);
 CREATE INDEX idx_entity_metadata_states_updated ON tick.entity_metadata_states (general__updated_at);
 
@@ -262,7 +257,6 @@ BEGIN
             general__expiry__delete_since_updated_at_ms,
             general__expiry__delete_since_created_at_ms,
             group__sync,
-            meta__data,
             general__created_at,
             general__created_by,
             general__updated_at,
@@ -278,7 +272,6 @@ BEGIN
             e.general__expiry__delete_since_updated_at_ms,
             e.general__expiry__delete_since_created_at_ms,
             e.group__sync,
-            e.meta__data,
             e.general__created_at,
             e.general__created_by,
             e.general__updated_at,
@@ -292,8 +285,12 @@ BEGIN
         INSERT INTO tick.entity_metadata_states (
             general__entity_name,
             metadata__key,
-            metadata__value,
-            group__sync,
+            metadata__jsonb,
+            metadata__text,
+            metadata__int,
+            metadata__float,
+            metadata__bool,
+            metadata__bytea,
             general__created_at,
             general__created_by,
             general__updated_at,
@@ -303,15 +300,21 @@ BEGIN
         SELECT
             em.general__entity_name,
             em.metadata__key,
-            em.metadata__value,
-            em.group__sync,
+            em.metadata__jsonb,
+            em.metadata__text,
+            em.metadata__int,
+            em.metadata__float,
+            em.metadata__bool,
+            em.metadata__bytea,
             em.general__created_at,
             em.general__created_by,
             em.general__updated_at,
             em.general__updated_by,
             v_tick_id
         FROM entity.entity_metadata em
-        WHERE em.group__sync = p_sync_group
+        JOIN entity.entities e
+          ON e.general__entity_name = em.general__entity_name
+        WHERE e.group__sync = p_sync_group
         RETURNING 1
     )
     SELECT COUNT(*) INTO v_entity_states_processed 
@@ -350,9 +353,9 @@ BEGIN
         tick__db__is_delayed = v_db_is_delayed
     WHERE wt.general__tick_id = v_tick_id;
 
-    -- Send notification that a tick has been captured
+    -- Send notification that a tick state has been captured
     PERFORM pg_notify(
-        'tick_captured',
+        'tick_state_captured',
         json_build_object(
             'syncGroup', p_sync_group,
             'tickId', v_tick_id,
@@ -377,6 +380,28 @@ BEGIN
         v_db_end_time,
         v_db_duration_ms,
         v_db_is_delayed;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 4.2 NOTIFY TICK PROCESSED
+CREATE OR REPLACE FUNCTION tick.notify_tick_processed(
+    p_sync_group text,
+    p_tick_id uuid,
+    p_tick_number bigint,
+    p_manager_duration_ms double precision,
+    p_manager_is_delayed boolean
+) RETURNS void AS $$
+BEGIN
+    PERFORM pg_notify(
+        'tick_processed',
+        json_build_object(
+            'syncGroup', p_sync_group,
+            'tickId', p_tick_id,
+            'tickNumber', p_tick_number,
+            'serviceDurationMs', p_manager_duration_ms,
+            'serviceIsDelayed', p_manager_is_delayed
+        )::text
+    );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -457,8 +482,9 @@ CREATE POLICY "entity_metadata_states_read_policy" ON tick.entity_metadata_state
         OR EXISTS (
             SELECT 1
             FROM auth.active_sync_group_sessions sess
+            JOIN tick.world_ticks wt ON wt.general__tick_id = tick.entity_metadata_states.general__tick_id
             WHERE sess.auth__agent_id = auth.current_agent_id()
-              AND sess.group__sync = tick.entity_metadata_states.group__sync
+              AND sess.group__sync = wt.group__sync
         )
     );
 

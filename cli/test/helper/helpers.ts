@@ -1,4 +1,4 @@
-import type postgres from "postgres";
+import type { SQL } from "bun";
 import { sign } from "jsonwebtoken";
 import { expect } from "bun:test";
 import { BunLogModule } from "../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
@@ -19,9 +19,7 @@ export interface TestAccount {
     sessionId: string;
 }
 
-export async function initTestAccounts(data: {
-    superUserSql: postgres.Sql;
-}): Promise<{
+export async function initTestAccounts(data: { superUserSql: SQL }): Promise<{
     adminAgent: TestAccount;
     regularAgent: TestAccount;
     anonAgent: TestAccount;
@@ -310,7 +308,7 @@ export async function initTestAccounts(data: {
 }
 
 export async function cleanupTestAccounts(data: {
-    superUserSql: postgres.Sql;
+    superUserSql: SQL;
 }): Promise<void> {
     await data.superUserSql.begin(async (tx) => {
         try {
@@ -318,12 +316,14 @@ export async function cleanupTestAccounts(data: {
             await tx`
                     DELETE FROM auth.agent_profiles 
                     WHERE profile__username LIKE ${`${DB_TEST_PREFIX}%`}
+                    OR auth__email LIKE ${`${DB_TEST_PREFIX}%`}
                 `;
 
             // Verify no test accounts remain
             const remainingProfiles = await tx<Auth.I_Profile[]>`
                     SELECT * FROM auth.agent_profiles
                     WHERE profile__username LIKE ${`${DB_TEST_PREFIX}%`}
+                    OR auth__email LIKE ${`${DB_TEST_PREFIX}%`}
                 `;
             expect(remainingProfiles).toHaveLength(0);
 
@@ -346,8 +346,24 @@ export async function cleanupTestAccounts(data: {
     });
 }
 
+export async function cleanupTestAuthProviders(data: {
+    superUserSql: SQL;
+}): Promise<void> {
+    await data.superUserSql.begin(async (tx) => {
+        await tx`
+            DELETE FROM auth.agent_auth_providers 
+            WHERE auth__provider_email LIKE ${`${DB_TEST_PREFIX}%`}
+        `;
+        await tx`
+            DELETE FROM auth.oauth_state_cache 
+            WHERE cache_key LIKE ${`${DB_TEST_PREFIX}%`}
+               OR cache_key LIKE 'pkce_verifier_%'
+        `;
+    });
+}
+
 export async function cleanupTestEntities(data: {
-    superUserSql: postgres.Sql;
+    superUserSql: SQL;
 }): Promise<void> {
     await data.superUserSql.begin(async (tx) => {
         try {
@@ -383,7 +399,7 @@ export async function cleanupTestEntities(data: {
 }
 
 export async function cleanupTestAssets(data: {
-    superUserSql: postgres.Sql;
+    superUserSql: SQL;
 }): Promise<void> {
     await data.superUserSql.begin(async (tx) => {
         try {

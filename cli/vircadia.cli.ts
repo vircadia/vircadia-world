@@ -1,30 +1,503 @@
-import { serverConfiguration } from "../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
-import { cliConfiguration } from "./vircadia.cli.config";
-import { BunLogModule } from "../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
-import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync, mkdirSync, statSync } from "node:fs";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import path, { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { input, Separator, select } from "@inquirer/prompts";
+import { $ } from "bun";
 import { sign } from "jsonwebtoken";
+import { type Browser, chromium, type Page } from "playwright";
+import { clientBrowserConfiguration } from "../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
+import { serverConfiguration } from "../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
+import { BunLogModule } from "../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { BunPostgresClientModule } from "../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
-import { input } from "@inquirer/prompts";
-import {
-    type Entity,
-    Service,
-    type Auth,
-} from "../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+import type { Entity } from "../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+import { cliConfiguration } from "./vircadia.cli.config";
 
-// TODO: Optimize the commands, get up and down rebuilds including init to work well.
+// Hardcoded system directories
+const SYSTEM_SQL_DIR = path.join(
+    dirname(fileURLToPath(import.meta.url)),
+    "./database/seed/sql/",
+);
 
-// https://github.com/tj/commander.js
-// https://www.npmjs.com/package/inquirer
+const SYSTEM_ASSET_DIR = path.join(
+    dirname(fileURLToPath(import.meta.url)),
+    "./database/seed/asset/",
+);
+
+const SYSTEM_RESET_DIR = path.join(
+    dirname(fileURLToPath(import.meta.url)),
+    "./database/reset",
+);
+
+const MIGRATION_DIR = path.join(
+    dirname(fileURLToPath(import.meta.url)),
+    "./database/migration",
+);
+
+// Environment Variable Management Module
+export namespace EnvManager {
+    const CLI_ENV_FILE_PATH = path.join(
+        dirname(fileURLToPath(import.meta.url)),
+        ".env",
+    );
+
+    const CLIENT_ENV_FILE_PATH = path.join(
+        dirname(fileURLToPath(import.meta.url)),
+        "../client/web_babylon_js/.env",
+    );
+
+    export async function setVariable(
+        key: string,
+        value: string,
+        envFile: "cli" | "client" = "cli",
+    ): Promise<void> {
+        try {
+            const envFilePath =
+                envFile === "cli" ? CLI_ENV_FILE_PATH : CLIENT_ENV_FILE_PATH;
+
+            let content = "";
+
+            // Read existing file if it exists
+            if (existsSync(envFilePath)) {
+                content = await readFile(envFilePath, "utf-8");
+            }
+
+            const lines = content.split("\n");
+            const keyPattern = new RegExp(`^${key}=.*$`);
+            let found = false;
+
+            // Search for existing key and replace
+            for (let i = 0; i < lines.length; i++) {
+                if (keyPattern.test(lines[i].trim())) {
+                    lines[i] = `${key}=${value}`;
+                    found = true;
+                    break;
+                }
+            }
+
+            // If not found, add to end
+            if (!found) {
+                if (content && !content.endsWith("\n")) {
+                    lines.push("");
+                }
+                lines.push(`${key}=${value}`);
+            }
+
+            // Write back to file
+            const newContent = lines.join("\n");
+            await writeFile(envFilePath, newContent, "utf-8");
+
+            // Update current session
+            process.env[key] = value;
+
+            BunLogModule({
+                message: `Set ${key}=${value}`,
+                type: "success",
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+            });
+        } catch (error) {
+            throw new Error(`Failed to set environment variable: ${error}`);
+        }
+    }
+
+    export async function unsetVariable(
+        key: string,
+        envFile: "cli" | "client" = "cli",
+    ): Promise<void> {
+        try {
+            const envFilePath =
+                envFile === "cli" ? CLI_ENV_FILE_PATH : CLIENT_ENV_FILE_PATH;
+
+            if (!existsSync(envFilePath)) {
+                BunLogModule({
+                    message: `Environment file does not exist: ${envFilePath}`,
+                    type: "warn",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                return;
+            }
+
+            const content = await readFile(envFilePath, "utf-8");
+            const lines = content.split("\n");
+            const keyPattern = new RegExp(`^${key}=.*$`);
+
+            // Filter out the line with the key
+            const filteredLines = lines.filter(
+                (line) => !keyPattern.test(line.trim()),
+            );
+
+            // Write back to file
+            const newContent = filteredLines.join("\n");
+            await writeFile(envFilePath, newContent, "utf-8");
+
+            // Remove from current session
+            delete process.env[key];
+
+            BunLogModule({
+                message: `Unset ${key}`,
+                type: "success",
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+            });
+        } catch (error) {
+            throw new Error(`Failed to unset environment variable: ${error}`);
+        }
+    }
+
+    export async function getVariable(
+        key: string,
+        envFile: "cli" | "client" = "cli",
+    ): Promise<string | undefined> {
+        try {
+            const envFilePath =
+                envFile === "cli" ? CLI_ENV_FILE_PATH : CLIENT_ENV_FILE_PATH;
+
+            if (!existsSync(envFilePath)) {
+                return undefined;
+            }
+
+            const content = await readFile(envFilePath, "utf-8");
+            const lines = content.split("\n");
+            const keyPattern = new RegExp(`^${key}=(.*)$`);
+
+            for (const line of lines) {
+                const match = line.trim().match(keyPattern);
+                if (match) {
+                    return match[1];
+                }
+            }
+
+            return undefined;
+        } catch (error) {
+            BunLogModule({
+                message: `Failed to read environment variable ${key}: ${error}`,
+                type: "warn",
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+            });
+            return undefined;
+        }
+    }
+}
+
+export namespace AutonomousAgent_CLI {
+    const DEV_PORT = clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT;
+    const DEV_HOST = "localhost";
+    const ORIGIN = `http://${DEV_HOST}:${DEV_PORT}`;
+    const BASE_URL = `${ORIGIN}?is_autonomous_agent=true`;
+
+    let browser: Browser | undefined;
+    let page: Page | undefined;
+
+    async function startApplication(): Promise<void> {
+        console.log(
+            `🚀 Launching browser and connecting to ${BASE_URL} as anonymous autonomous agent`,
+        );
+
+        browser = await chromium.launch({
+            headless: true,
+            args: [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-accelerated-2d-canvas",
+                "--no-first-run",
+                "--no-zygote",
+                // Disable WebGPU - use WebGL software rendering instead
+                "--disable-webgpu",
+                "--ignore-gpu-blocklist",
+                // Cross-origin isolation and workers features for ONNX/Transformers
+                "--enable-features=SharedArrayBuffer,WebAssemblyThreads,WebAssemblySimd,WebAssemblySimd128,WebAssemblyTiering,WebAssemblyLazyCompilation",
+                // Use ANGLE SwiftShader for WebGL software rendering
+                "--enable-unsafe-swiftshader",
+                "--use-angle=swiftshader",
+                "--use-gl=swiftshader",
+                // Fake audio device support
+                // "--use-fake-device-for-media-stream",
+                "--use-fake-ui-for-media-stream",
+                "--autoplay-policy=no-user-gesture-required",
+            ],
+        });
+
+        const context = await browser.newContext({
+            viewport: { width: 1280, height: 720 },
+        });
+
+        // Grant microphone permission before creating page
+        await context.grantPermissions(["microphone"], { origin: ORIGIN });
+
+        page = await context.newPage();
+
+        // Stop gracefully if the page crashes or closes
+        page.on("crash", async () => {
+            console.error("\n💥 Page crashed. Stopping state monitoring.");
+            await cleanup();
+        });
+        page.on("close", async () => {
+            console.error("\n🔒 Page closed. Stopping state monitoring.");
+            await cleanup();
+        });
+        page.on("pageerror", (err: Error) => {
+            console.error("\n💥 Page error:", err);
+        });
+        page.on("console", (msg: { type: () => string; text: () => string; location: () => { url: string; lineNumber: number; columnNumber: number } }) => {
+            const loc = msg.location();
+            console.log(
+                `📜 [browser:${msg.type()}] ${msg.text()} (${loc.url}:${loc.lineNumber}:${loc.columnNumber})`,
+            );
+        });
+
+        await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
+
+        // Wait for canvas element to exist
+        await page.waitForSelector("canvas", { timeout: 30000 });
+        console.log("✅ Canvas found");
+
+        console.log("🎉 Application is ready! Press Ctrl+C to exit.");
+    }
+
+    function startStatePolling(page: Page): void {
+        console.log("\n📊 Starting autonomous agent state monitoring...");
+
+        let interval: ReturnType<typeof setInterval>;
+        let stopped = false;
+
+        const logState = async () => {
+            try {
+                if (stopped || page.isClosed()) {
+                    return;
+                }
+
+                const state = await page.evaluate(() => {
+                    const win = window as unknown as {
+                        __VircadiaClientBrowserState__?: {
+                            autonomousAgent?: unknown;
+                        };
+                    };
+                    return win.__VircadiaClientBrowserState__?.autonomousAgent;
+                });
+
+                if (state && typeof state === "object") {
+                    const agentState = state as {
+                        tts: {
+                            loading: boolean;
+                            step: string;
+                            progressPct: number;
+                            generating: boolean;
+                            ready: boolean;
+                        };
+                        llm: {
+                            loading: boolean;
+                            step: string;
+                            progressPct: number;
+                            generating: boolean;
+                            ready: boolean;
+                        };
+                        stt: {
+                            loading: boolean;
+                            step: string;
+                            processing: boolean;
+                            ready: boolean;
+                            active: boolean;
+                            attachedIds: string[];
+                        };
+                        vad: {
+                            recording: boolean;
+                            segmentsCount: number;
+                            lastSegmentAt: number | null;
+                        };
+                        webrtc: {
+                            connected: boolean;
+                            peersCount: number;
+                            localStream: boolean;
+                        };
+                        audio: { rmsLevel: number; rmsPct: number };
+                        speaking: boolean;
+                        transcriptsCount: number;
+                        llmOutputsCount: number;
+                        conversationItemsCount: number;
+                    };
+
+                    // Clear previous line and print updated state
+                    process.stdout.write("\r\x1b[K"); // Clear line
+
+                    const lines = [
+                        `🤖 Autonomous Agent State:`,
+                        `  TTS: ${agentState.tts.loading ? "Loading" : agentState.tts.ready ? "Ready" : "Idle"} ${agentState.tts.loading ? `(${agentState.tts.step}, ${Math.round(agentState.tts.progressPct)}%)` : ""} ${agentState.tts.generating ? "[Generating]" : ""}`,
+                        `  LLM: ${agentState.llm.loading ? "Loading" : agentState.llm.ready ? "Ready" : "Idle"} ${agentState.llm.loading ? `(${agentState.llm.step}, ${Math.round(agentState.llm.progressPct)}%)` : ""} ${agentState.llm.generating ? "[Generating]" : ""}`,
+                        `  STT: ${agentState.stt.loading ? "Loading" : agentState.stt.ready ? "Ready" : "Idle"} ${agentState.stt.loading ? `(${agentState.stt.step})` : ""} ${agentState.stt.processing ? "[Processing]" : ""} ${agentState.stt.active ? "[Active]" : "[Paused]"}`,
+                        `  VAD: ${agentState.vad.recording ? "Recording" : "Idle"} | Segments: ${agentState.vad.segmentsCount}`,
+                        `  WebRTC: ${agentState.webrtc.connected ? "Connected" : "Disconnected"} (${agentState.webrtc.peersCount} peers)`,
+                        `  Audio RMS: ${agentState.audio.rmsLevel.toFixed(3)} (${agentState.audio.rmsPct}%)`,
+                        `  Speaking: ${agentState.speaking ? "Yes" : "No"} | Transcripts: ${agentState.transcriptsCount} | LLM Outputs: ${agentState.llmOutputsCount} | Conversation: ${agentState.conversationItemsCount}`,
+                    ];
+
+                    // Print all lines
+                    for (const line of lines) {
+                        console.log(line);
+                    }
+                }
+            } catch (error) {
+                console.error("\n❌ Error polling state:", error);
+                // If the target crashed, stop polling to avoid noisy logs
+                const message = String(error ?? "");
+                if (
+                    (message.includes("Target crashed") ||
+                        message.includes("has been closed")) &&
+                    interval
+                ) {
+                    clearInterval(interval);
+                    stopped = true;
+                }
+            }
+        };
+
+        // Log state every second
+        interval = setInterval(logState, 1000);
+
+        // Clean up interval on shutdown
+        process.on("SIGINT", () => {
+            clearInterval(interval);
+            stopped = true;
+        });
+
+        process.on("SIGTERM", () => {
+            clearInterval(interval);
+            stopped = true;
+        });
+    }
+
+    async function cleanup(): Promise<void> {
+        if (browser) {
+            await browser.close();
+            console.log("🔒 Browser closed");
+        }
+    }
+
+    export async function run(): Promise<void> {
+        // Handle graceful shutdown
+        process.on("SIGINT", async () => {
+            console.log("\n🛑 Received SIGINT (Ctrl+C), shutting down gracefully...");
+            await cleanup();
+            process.exit(0);
+        });
+
+        process.on("SIGTERM", async () => {
+            console.log("\n🛑 Received SIGTERM, shutting down gracefully...");
+            await cleanup();
+            process.exit(0);
+        });
+
+        // Handle uncaught exceptions
+        process.on("uncaughtException", async (error) => {
+            console.error("💥 Uncaught exception:", error);
+            await cleanup();
+            process.exit(1);
+        });
+
+        process.on("unhandledRejection", async (reason, promise) => {
+            console.error("💥 Unhandled rejection at:", promise, "reason:", reason);
+            await cleanup();
+            process.exit(1);
+        });
+
+        // Start the application
+        await startApplication().catch((error) => {
+            console.error("💥 Failed to start application:", error);
+            process.exit(1);
+        });
+    }
+}
 
 export namespace Server_CLI {
     const SERVER_DOCKER_COMPOSE_FILE = path.join(
         dirname(fileURLToPath(import.meta.url)),
         "../server/service/server.docker.compose.yml",
     );
+
+    export async function withWait<T>(
+        fn: () => Promise<T>,
+        wait: { interval: number; timeout: number } | boolean,
+    ): Promise<T> {
+        const defaultWait = { interval: 100, timeout: 10000 };
+        const waitConfig =
+            wait === true
+                ? defaultWait
+                : wait && typeof wait !== "boolean"
+                  ? wait
+                  : null;
+
+        if (!waitConfig) {
+            return fn();
+        }
+
+        const startTime = Date.now();
+        let lastError: Error | undefined;
+
+        while (Date.now() - startTime < waitConfig.timeout) {
+            try {
+                const result = await fn();
+                return result;
+            } catch (error) {
+                lastError =
+                    error instanceof Error ? error : new Error(String(error));
+                await Bun.sleep(waitConfig.interval);
+            }
+        }
+
+        const timeoutError = new Error(`Timeout after ${waitConfig.timeout}ms`);
+        if (lastError) {
+            timeoutError.cause = lastError;
+        }
+        throw timeoutError;
+    }
+
+    export async function checkContainer(containerName: string): Promise<void> {
+        const proc = Bun.spawn(
+            [
+                "docker",
+                "inspect",
+                "-f",
+                "{{.State.Health.Status}}",
+                containerName,
+            ],
+            { stdout: "pipe", stderr: "pipe" },
+        );
+        const stdout = await new Response(proc.stdout).text();
+        const stderr = await new Response(proc.stderr).text();
+        const exitCode = await proc.exited;
+        const status = stdout.trim();
+        console.info(`Container ${containerName} status: ${status}`);
+
+        if (exitCode !== 0) {
+            throw new Error(stderr);
+        }
+
+        if (status === "healthy") {
+            return;
+        }
+
+        if (status === "<no value>" || status === "") {
+            const runningProc = Bun.spawnSync([
+                "docker",
+                "inspect",
+                "-f",
+                "{{.State.Status}}",
+                containerName,
+            ]);
+            const runningStatus = new TextDecoder()
+                .decode(runningProc.stdout)
+                .trim();
+            if (runningStatus === "running") {
+                return;
+            }
+            throw new Error(`container status: ${runningStatus}`);
+        }
+
+        throw new Error(`container health: ${status}`);
+    }
 
     export async function runServerDockerCommand(data: {
         args: string[];
@@ -41,6 +514,11 @@ export namespace Server_CLI {
             VRCA_SERVER_DEBUG: serverConfiguration.VRCA_SERVER_DEBUG.toString(),
             VRCA_SERVER_SUPPRESS:
                 serverConfiguration.VRCA_SERVER_SUPPRESS.toString(),
+            VRCA_SERVER_ALLOWED_ORIGINS:
+                serverConfiguration.VRCA_SERVER_ALLOWED_ORIGINS.join(","),
+            VRCA_SERVER_DEFAULT_HOST: serverConfiguration.VRCA_SERVER_DEFAULT_HOST,
+            VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST,
 
             VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
@@ -70,31 +548,163 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL:
                 serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL.toString(),
 
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME,
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL.toString(),
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
+            // Caddy reverse proxy
+            VRCA_SERVER_SERVICE_CADDY_CONTAINER_NAME:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP.toString(),
+            VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS.toString(),
+            VRCA_SERVER_SERVICE_CADDY_DOMAIN:
+                (serverConfiguration.VRCA_SERVER_DEFAULT_HOST === "localhost" ||
+                 serverConfiguration.VRCA_SERVER_DEFAULT_HOST === "127.0.0.1") &&
+                !serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN.startsWith(
+                    "http",
+                )
+                    ? `http://${serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN}`
+                    : serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN,
+            VRCA_SERVER_SERVICE_CADDY_EMAIL:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_EMAIL,
+            VRCA_SERVER_SERVICE_CADDY_TLS_MODE:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_MODE,
 
+
+            // API WS Manager
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_CONTAINER_NAME:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_DEBUG:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_DEBUG.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SUPPRESS:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SUPPRESS.toString(),
+
+            // API REST Auth Manager
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_DEBUG:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_DEBUG.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_SUPPRESS:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_SUPPRESS.toString(),
+
+            // API REST Asset Manager
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAX_BYTES:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAX_BYTES.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_DIR:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_DIR,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAINTENANCE_INTERVAL_MS:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAINTENANCE_INTERVAL_MS.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_DEBUG:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_DEBUG.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_SUPPRESS:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_SUPPRESS.toString(),
+
+            // API REST Inference Manager
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_CONTAINER_NAME:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_SSL_ENABLED_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_SSL_ENABLED_PUBLIC_AVAILABLE_AT.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_DEBUG:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_DEBUG.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_SUPPRESS:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_SUPPRESS.toString(),
+
+            // State Manager
             VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME,
-            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
-            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL.toString(),
-            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
-            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_DEBUG:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_DEBUG.toString(),
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_SUPPRESS:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_SUPPRESS.toString(),
+
+
+
+            // Azure Entra ID Auth (env-first)
+            VRCA_SERVER_AUTH_AZURE_CLIENT_ID:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_CLIENT_ID,
+            VRCA_SERVER_AUTH_AZURE_CLIENT_SECRET:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_CLIENT_SECRET,
+            VRCA_SERVER_AUTH_AZURE_TENANT_ID:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_TENANT_ID,
+            VRCA_SERVER_AUTH_AZURE_JWT_SECRET:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_JWT_SECRET,
+            VRCA_SERVER_AUTH_AZURE_SCOPES: Array.isArray(
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES,
+            )
+                ? serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES.join(",")
+                : String(serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES),
+            VRCA_SERVER_AUTH_AZURE_ENABLED:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_ENABLED.toString(),
+            VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_READ:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_READ.join(
+                    ",",
+                ),
+            VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_INSERT:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_INSERT.join(
+                    ",",
+                ),
+            VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_UPDATE:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_UPDATE.join(
+                    ",",
+                ),
+            VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_DELETE:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_DELETE.join(
+                    ",",
+                ),
+            VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS.join(
+                    ",",
+                ),
+
+            // Inference Providers - Cerebras
+            VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY:
+                serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY,
+            VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL:
+                serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL,
+
+            // Inference Providers - Groq
+            VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY:
+                serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY,
+            VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL:
+                serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL,
+            VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL:
+                serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL,
+            VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE:
+                serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE,
         };
 
         // Construct the command
@@ -164,255 +774,139 @@ export namespace Server_CLI {
         }
     }
 
-    export async function isPostgresHealthy(
-        wait?: { interval: number; timeout: number } | boolean,
-    ): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-    }> {
-        // Default wait settings for postgres
-        const defaultWait = { interval: 100, timeout: 10000 };
+    export async function printEgressInfo(): Promise<void> {
+        const apiWsHostExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
 
-        // If wait is true, use default wait settings
-        const waitConfig =
-            wait === true
-                ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
-                  : null;
+        const apiWsPortExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
 
-        const checkPostgres = async (): Promise<{
-            isHealthy: boolean;
-            error?: Error;
-        }> => {
-            try {
-                const db = BunPostgresClientModule.getInstance({
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                });
+        const apiAuthHostExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
 
-                const sql = await db.getSuperClient({
-                    postgres: {
-                        host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                        port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                        database:
-                            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
-                        username:
-                            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
-                        password:
-                            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
-                    },
-                });
-                await sql`SELECT 1`;
-                return { isHealthy: true };
-            } catch (error: unknown) {
-                return { isHealthy: false, error: error as Error };
-            }
-        };
+        const apiAuthPortExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
 
-        // If waiting is not enabled, just check once
-        if (!waitConfig) {
-            return await checkPostgres();
-        }
+        const apiAssetHostExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
 
-        // With waiting enabled, retry until timeout
-        const startTime = Date.now();
-        let lastError: Error | undefined;
+        const apiAssetPortExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
 
-        while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkPostgres();
-            if (result.isHealthy) {
-                return result;
-            }
-            lastError = result.error;
-            await Bun.sleep(waitConfig.interval);
-        }
+        const apiInferenceHostExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
 
-        return { isHealthy: false, error: lastError };
+        const apiInferencePortExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
+
+
+
+        const apiWsUpstream = `${apiWsHostExternal}:${apiWsPortExternal}`;
+        const apiAuthUpstream = `${apiAuthHostExternal}:${apiAuthPortExternal}`;
+        const apiAssetUpstream = `${apiAssetHostExternal}:${apiAssetPortExternal}`;
+        const apiInferenceUpstream = `${apiInferenceHostExternal}:${apiInferencePortExternal}`;
+
+
+        BunLogModule({
+            message: "Reverse proxy egress points (what to proxy):",
+            type: "info",
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
+        });
+
+        console.log(`\nHost-published endpoints (for proxies on the host):`);
+        console.log(
+            `  API WS Manager:  http://${apiWsHostExternal}:${apiWsPortExternal}`,
+        );
+        console.log(
+            `  API REST Auth Manager:  http://${apiAuthHostExternal}:${apiAuthPortExternal}`,
+        );
+        console.log(
+            `  API REST Asset Manager:  http://${apiAssetHostExternal}:${apiAssetPortExternal}`,
+        );
+        console.log(
+            `  API REST Inference Manager:  http://${apiInferenceHostExternal}:${apiInferencePortExternal}`,
+        );
+
+
+        console.log(`\nDocker network upstreams (for proxies inside Docker):`);
+        console.log(`  API WS Manager:  ${apiWsUpstream}`);
+        console.log(`  API REST Auth Manager:  ${apiAuthUpstream}`);
+        console.log(`  API REST Asset Manager:  ${apiAssetUpstream}`);
+        console.log(`  API REST Inference Manager:  ${apiInferenceUpstream}`);
+
     }
 
-    export async function isPgwebHealthy(
-        wait?:
-            | {
-                  interval: number;
-                  timeout: number;
-              }
-            | boolean,
-    ): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-    }> {
-        const defaultWait = { interval: 100, timeout: 10000 };
+    export async function markDatabaseAsReady(): Promise<void> {
+        const db = BunPostgresClientModule.getInstance({
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+        });
+        const sql = await db.getSuperClient({
+            postgres: {
+                host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                username:
+                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                password:
+                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+            },
+        });
 
-        const waitConfig =
-            wait === true
-                ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
-                  : null;
-
-        const checkPgweb = async (): Promise<{
-            isHealthy: boolean;
-            error?: Error;
-        }> => {
-            try {
-                const pgwebAccessURL = await generatePgwebAccessURL();
-                const response = await fetch(pgwebAccessURL);
-                return { isHealthy: response.ok };
-            } catch (error: unknown) {
-                return { isHealthy: false, error: error as Error };
-            }
-        };
-
-        // If waiting is not enabled, just check once
-        if (!waitConfig) {
-            return await checkPgweb();
-        }
-
-        // With waiting enabled, retry until timeout
-        const startTime = Date.now();
-        let lastError: Error | undefined;
-
-        while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkPgweb();
-            if (result.isHealthy) {
-                return result;
-            }
-            lastError = result.error;
-            await Bun.sleep(waitConfig.interval);
-        }
-
-        return { isHealthy: false, error: lastError };
-    }
-
-    export async function isWorldApiManagerHealthy(
-        wait?:
-            | {
-                  interval: number;
-                  timeout: number;
-              }
-            | boolean,
-    ): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-        waitConfig?: {
-            interval: number;
-            timeout: number;
-        };
-    }> {
-        const defaultWait = { interval: 100, timeout: 10000 };
-
-        const waitConfig =
-            wait === true
-                ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
-                  : null;
-
-        const checkWorldApiManager = async (): Promise<{
-            isHealthy: boolean;
-            error?: Error;
-        }> => {
-            try {
-                // Host-side health check: fetch stats with x-forwarded-for header
-                const url = `http://${cliConfiguration.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${cliConfiguration.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Service.API.Stats_Endpoint.path}`;
-                const response = await fetch(url, {
-                    headers: { "x-forwarded-for": "127.0.0.1" },
-                });
-                return { isHealthy: response.ok };
-            } catch (error: unknown) {
-                return { isHealthy: false, error: error as Error };
-            }
-        };
-
-        // If waiting is not enabled, just check once
-        if (!waitConfig) {
-            return await checkWorldApiManager();
-        }
-
-        // With waiting enabled, retry until timeout
-        const startTime = Date.now();
-        let lastError: Error | undefined;
-
-        while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkWorldApiManager();
-            if (result.isHealthy) {
-                return result;
-            }
-            lastError = result.error;
-            await Bun.sleep(waitConfig.interval);
-        }
-
-        return {
-            isHealthy: false,
-            error: lastError,
-            waitConfig: waitConfig,
-        };
-    }
-
-    export async function isWorldStateManagerHealthy(
-        wait?:
-            | {
-                  interval: number;
-                  timeout: number;
-              }
-            | boolean,
-    ): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-        waitConfig?: {
-            interval: number;
-            timeout: number;
-        };
-    }> {
-        const defaultWait = { interval: 100, timeout: 10000 };
-
-        const waitConfig =
-            wait === true
-                ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
-                  : null;
-
-        const checkWorldStateManager = async (): Promise<{
-            isHealthy: boolean;
-            error?: Error;
-        }> => {
-            try {
-                // Host-side health check: fetch stats with x-forwarded-for header
-                const url = `http://${cliConfiguration.VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_HOST}:${cliConfiguration.VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_PORT}${Service.State.Stats_Endpoint.path}`;
-                const response = await fetch(url, {
-                    headers: { "x-forwarded-for": "127.0.0.1" },
-                });
-                return { isHealthy: response.ok };
-            } catch (error: unknown) {
-                return { isHealthy: false, error: error as Error };
-            }
-        };
-
-        // If waiting is not enabled, just check once
-        if (!waitConfig) {
-            return await checkWorldStateManager();
-        }
-
-        // With waiting enabled, retry until timeout
-        const startTime = Date.now();
-        let lastError: Error | undefined;
-
-        while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkWorldStateManager();
-            if (result.isHealthy) {
-                return result;
-            }
-            lastError = result.error;
-            await Bun.sleep(waitConfig.interval);
-        }
-
-        return {
-            isHealthy: false,
-            error: lastError,
-            waitConfig: waitConfig,
-        };
+        // Set the setup timestamp to now() in the config.database_config table
+        await sql`
+            UPDATE config.database_config
+            SET database_config__setup_timestamp = NOW()
+        `;
     }
 
     export async function wipeDatabase() {
@@ -433,11 +927,10 @@ export namespace Server_CLI {
         });
 
         try {
-            // Get list of migration files
-            const systemResetDir =
-                cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SYSTEM_RESET_DIR;
+            // Use hardcoded system reset directory
+            const systemResetDir = SYSTEM_RESET_DIR;
             const userResetDir =
-                cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_USER_RESET_DIR;
+                cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_RESET_USER_DIR;
 
             // Process system reset files
             let systemResetFiles: string[] = [];
@@ -615,12 +1108,9 @@ export namespace Server_CLI {
     `);
 
         // Get list of migration files
-        const migrations = await readdir(
-            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
-            {
-                recursive: true,
-            },
-        );
+        const migrations = await readdir(MIGRATION_DIR, {
+            recursive: true,
+        });
         const migrationSqlFiles = migrations
             .filter((f) => f.endsWith(".sql"))
             .sort((a, b) => {
@@ -656,10 +1146,7 @@ export namespace Server_CLI {
             if (!executedMigrations.includes(file)) {
                 migrationsRan = true;
                 try {
-                    const filePath = path.join(
-                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
-                        file,
-                    );
+                    const filePath = path.join(MIGRATION_DIR, file);
                     const sqlContent = await readFile(filePath, "utf-8");
 
                     BunLogModule({
@@ -717,9 +1204,8 @@ export namespace Server_CLI {
             },
         });
 
-        // Ensure we resolve the seed path to absolute path
-        const systemSqlDir =
-            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_SQL_DIR;
+        // Use hardcoded system SQL directory
+        const systemSqlDir = SYSTEM_SQL_DIR;
 
         const userSqlDir =
             cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR;
@@ -728,9 +1214,11 @@ export namespace Server_CLI {
             // Get already executed seeds - querying by hash
             const result =
                 await sql`SELECT general__hash, general__name FROM config.seeds`;
-            const executedHashes = new Set(result.map((r) => r.general__hash));
+            const executedHashes = new Set(
+                result.map((r: any) => r.general__hash),
+            );
             const executedNames = new Map(
-                result.map((r) => [r.general__name, r.general__hash]),
+                result.map((r: any) => [r.general__name, r.general__hash]),
             );
 
             // Process system SQL files
@@ -907,6 +1395,12 @@ export namespace Server_CLI {
 
             BunLogModule({
                 message: "SQL seeding completed successfully",
+                data: {
+                    "System SQL Files": systemSqlFiles.length,
+                    "User SQL Files": userSqlFiles.length,
+                    "Total SQL Files":
+                        systemSqlFiles.length + userSqlFiles.length,
+                },
                 type: "success",
                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                 debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -952,9 +1446,8 @@ export namespace Server_CLI {
             },
         });
 
-        // Get paths for both system and user asset directories
-        const systemAssetDir =
-            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_ASSET_DIR;
+        // Use hardcoded system asset directory
+        const systemAssetDir = SYSTEM_ASSET_DIR;
         const userAssetDir =
             cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR;
 
@@ -1104,7 +1597,11 @@ export namespace Server_CLI {
                 fileName,
                 searchName,
                 directory,
-            }: { fileName: string; searchName: string; directory: string }) => {
+            }: {
+                fileName: string;
+                searchName: string;
+                directory: string;
+            }) => {
                 const assetPath = path.join(directory, fileName);
 
                 // When using S3-style paths, we need to check for exact matches or create a new asset
@@ -1164,6 +1661,13 @@ export namespace Server_CLI {
                                     asset__data__bytea = ${assetDataBinary}
                                 WHERE general__asset_file_name = ${dbAsset.general__asset_file_name}
                             `;
+
+                            BunLogModule({
+                                message: `Updated asset in database: ${dbAsset.general__asset_file_name}`,
+                                type: "debug",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
                         }
                     });
 
@@ -1229,6 +1733,11 @@ export namespace Server_CLI {
 
             BunLogModule({
                 message: "Asset seeding completed successfully",
+                data: {
+                    "System Assets": systemAssetFileNames.length,
+                    "User Assets": userAssetFileNames.length,
+                    "Total Assets": allAssetFileNames.length,
+                },
                 type: "success",
                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                 debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -1244,6 +1753,7 @@ export namespace Server_CLI {
         }
     }
 
+    // TODO: This should be able to work with remote DBs too, we should create a service token and let the API create these and issue them on behalf of system token granted users.
     export async function generateDbSystemToken(): Promise<{
         token: string;
         sessionId: string;
@@ -1271,10 +1781,19 @@ export namespace Server_CLI {
                 {
                     provider__jwt_secret: string;
                     provider__session_duration_ms: number;
+                    provider__default_permissions__can_read: string[];
+                    provider__default_permissions__can_insert: string[];
+                    provider__default_permissions__can_update: string[];
+                    provider__default_permissions__can_delete: string[];
                 },
             ]
         >`
-            SELECT provider__jwt_secret, provider__session_duration_ms
+            SELECT provider__jwt_secret, 
+                   provider__session_duration_ms,
+                   provider__default_permissions__can_read,
+                   provider__default_permissions__can_insert,
+                   provider__default_permissions__can_update,
+                   provider__default_permissions__can_delete
             FROM auth.auth_providers
             WHERE provider__name = 'system'
             AND provider__enabled = true
@@ -1330,38 +1849,27 @@ export namespace Server_CLI {
             WHERE general__session_id = ${sessionResult.general__session_id}
         `;
 
-        // Get all available sync groups
-        const syncGroups = await sql<[Auth.SyncGroup.I_SyncGroup]>`
-            SELECT general__sync_group
-            FROM auth.sync_groups
+        // Manually assign permissions to system agent for all sync groups (system provider defaults)
+        await sql`
+            INSERT INTO auth.agent_sync_group_roles (
+                auth__agent_id,
+                group__sync,
+                permissions__can_read,
+                permissions__can_insert,
+                permissions__can_update,
+                permissions__can_delete
+            ) VALUES
+                (${systemAgentId}, 'public.REALTIME', true, true, true, true),
+                (${systemAgentId}, 'public.NORMAL', true, true, true, true),
+                (${systemAgentId}, 'public.BACKGROUND', true, true, true, true),
+                (${systemAgentId}, 'public.STATIC', true, true, true, true)
+            ON CONFLICT (auth__agent_id, group__sync)
+            DO UPDATE SET
+                permissions__can_read = true,
+                permissions__can_insert = true,
+                permissions__can_update = true,
+                permissions__can_delete = true
         `;
-
-        // Assign the system agent to all sync groups with full permissions
-        for (const group of syncGroups) {
-            await sql`
-                INSERT INTO auth.agent_sync_group_roles (
-                    auth__agent_id,
-                    group__sync,
-                    permissions__can_read,
-                    permissions__can_insert,
-                    permissions__can_update,
-                    permissions__can_delete
-                ) VALUES (
-                    ${systemAgentId},
-                    ${group.general__sync_group},
-                    true,
-                    true,
-                    true,
-                    true
-                )
-                ON CONFLICT (auth__agent_id, group__sync) 
-                DO UPDATE SET
-                    permissions__can_read = true,
-                    permissions__can_insert = true,
-                    permissions__can_update = true,
-                    permissions__can_delete = true
-            `;
-        }
 
         return {
             token,
@@ -1411,7 +1919,8 @@ export namespace Server_CLI {
     }
 
     export async function generatePgwebAccessURL(): Promise<string> {
-        return `http://${cliConfiguration.VRCA_CLI_SERVICE_PGWEB_HOST}:${cliConfiguration.VRCA_CLI_SERVICE_PGWEB_PORT}`;
+        // Fall back to server config for host-published PGWEB address
+        return `http://${serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_BIND_EXTERNAL}:${serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL}`;
     }
 
     export async function downloadAssetsFromDatabase(data: {
@@ -1510,12 +2019,14 @@ export namespace Server_CLI {
             });
 
             // Function to process a single asset
-            const processAsset = async (asset: {
-                general__asset_file_name: string;
-                asset__data__bytea?: Buffer | Uint8Array | null;
-                asset__mime_type?: string;
-                [key: string]: unknown;
-            }) => {
+            const processAsset = async (
+                asset: Pick<
+                    Entity.Asset.I_Asset,
+                    | "general__asset_file_name"
+                    | "asset__data__bytea"
+                    | "asset__mime_type"
+                >,
+            ) => {
                 try {
                     const fileName = asset.general__asset_file_name;
 
@@ -1531,10 +2042,15 @@ export namespace Server_CLI {
 
                     // Save the binary data to file
                     if (asset.asset__data__bytea) {
-                        await writeFile(
-                            filePath,
-                            Buffer.from(asset.asset__data__bytea),
-                        );
+                        let buffer: Buffer;
+                        if (asset.asset__data__bytea instanceof ArrayBuffer) {
+                            buffer = Buffer.from(asset.asset__data__bytea);
+                        } else {
+                            buffer = Buffer.from(
+                                asset.asset__data__bytea as Buffer,
+                            );
+                        }
+                        await writeFile(filePath, buffer);
 
                         BunLogModule({
                             message: `Downloaded asset: ${fileName}`,
@@ -1615,12 +2131,13 @@ export namespace Server_CLI {
             }
 
             // Check if the database is running using isPostgresHealthy
-            const health = await isPostgresHealthy(false);
-            if (!health.isHealthy) {
-                throw new Error(
-                    `PostgreSQL database is not available. Please start the server with 'server:run-command up -d'. Error: ${health.error?.message || "Unknown error"}`,
-                );
-            }
+            await Server_CLI.withWait<void>(
+                () =>
+                    Server_CLI.checkContainer(
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                    ),
+                false,
+            );
 
             // Execute pg_dump directly to stdout and pipe it to a file on the host
             BunLogModule({
@@ -1723,12 +2240,13 @@ export namespace Server_CLI {
             }
 
             // Check if the database is running using isPostgresHealthy
-            const health = await isPostgresHealthy(false);
-            if (!health.isHealthy) {
-                throw new Error(
-                    `PostgreSQL database is not available. Please start the server with 'server:run-command up -d'. Error: ${health.error?.message || "Unknown error"}`,
-                );
-            }
+            await Server_CLI.withWait<void>(
+                () =>
+                    Server_CLI.checkContainer(
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                    ),
+                false,
+            );
 
             // Read the backup file
             const stats = statSync(restoreFilePathHost);
@@ -1819,7 +2337,9 @@ export namespace Server_CLI {
     }
 }
 
-// Helper: parse --interval, --timeout, --no-wait
+// No dedicated rebuild helper: we run `bun run server:rebuild-all` in current working directory
+
+// Helper to parse wait flags from command args
 function parseWaitFlags(
     args: string[],
 ): boolean | { interval: number; timeout: number } {
@@ -1847,32 +2367,6 @@ function parseWaitFlags(
     return true; // default wait with built-in defaults
 }
 
-// Tiny wrapper that does the loop, logs and exits appropriately.
-async function runHealthCommand(
-    label: string,
-    healthFn: (
-        wait?: boolean | { interval: number; timeout: number },
-    ) => Promise<{
-        isHealthy: boolean;
-        error?: Error;
-        waitConfig?: { interval: number; timeout: number };
-    }>,
-    args: string[],
-) {
-    const waitParam = parseWaitFlags(args);
-    const health = await healthFn(waitParam);
-
-    BunLogModule({
-        message: `${label}: ${health.isHealthy ? "healthy" : "unhealthy"}`,
-        data: health,
-        type: health.isHealthy ? "success" : "error",
-        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-        debug: cliConfiguration.VRCA_CLI_DEBUG,
-    });
-
-    process.exit(health.isHealthy ? 0 : 1);
-}
-
 // If this file is run directly
 if (import.meta.main) {
     const command = Bun.argv[2];
@@ -1891,37 +2385,262 @@ if (import.meta.main) {
     try {
         switch (command) {
             // SERVER CONTAINER HEALTH
-            case "server:postgres:health":
-                await runHealthCommand(
-                    "PostgreSQL",
-                    Server_CLI.isPostgresHealthy,
-                    additionalArgs,
-                );
-                break;
+            case "server:postgres:health": {
+                if (
+                    additionalArgs.includes("--db") ||
+                    additionalArgs.includes("--mode=db")
+                ) {
+                    const waitParam = parseWaitFlags(additionalArgs);
+                    await Server_CLI.withWait<void>(async () => {
+                        const db = BunPostgresClientModule.getInstance({
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        });
+                        const sql = await db.getSuperClient({
+                            postgres: {
+                                host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                                port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                                database:
+                                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                                username:
+                                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                                password:
+                                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                            },
+                        });
 
-            case "server:pgweb:health":
-                await runHealthCommand(
-                    "PGWEB",
-                    Server_CLI.isPgwebHealthy,
-                    additionalArgs,
-                );
-                break;
+                        // Minimal check that succeeds pre-migration
+                        await sql`SELECT 1`;
+                        return;
+                    }, waitParam).catch((error) => {
+                        BunLogModule({
+                            message: `PostgreSQL (DB Ready): unhealthy`,
+                            type: "error",
+                            error,
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+                        process.exit(1);
+                    });
 
-            case "server:world-api-manager:health":
-                await runHealthCommand(
-                    "World API Manager",
-                    Server_CLI.isWorldApiManagerHealthy,
-                    additionalArgs,
-                );
-                break;
+                    BunLogModule({
+                        message: `PostgreSQL (DB Ready): healthy`,
+                        type: "success",
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(0);
+                } else {
+                    const waitParam = parseWaitFlags(additionalArgs);
+                    await Server_CLI.withWait<void>(
+                        () =>
+                            Server_CLI.checkContainer(
+                                serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                            ),
+                        waitParam,
+                    ).catch((error) => {
+                        BunLogModule({
+                            message: `PostgreSQL (DB Healthy): unhealthy`,
+                            type: "error",
+                            error,
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+                        process.exit(1);
+                    });
 
-            case "server:world-state-manager:health":
-                await runHealthCommand(
-                    "World State Manager",
-                    Server_CLI.isWorldStateManagerHealthy,
-                    additionalArgs,
-                );
+                    BunLogModule({
+                        message: `PostgreSQL (DB Healthy): healthy`,
+                        type: "success",
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(0);
+                }
                 break;
+            }
+
+            case "server:postgres:mark-as-ready": {
+                BunLogModule({
+                    message: "Marking database as ready...",
+                    type: "info",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                await Server_CLI.markDatabaseAsReady();
+                BunLogModule({
+                    message: "Database marked as ready.",
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                break;
+            }
+
+            case "server:pgweb:health": {
+                const waitParam = parseWaitFlags(additionalArgs);
+                await Server_CLI.withWait<void>(
+                    () =>
+                        Server_CLI.checkContainer(
+                            serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME,
+                        ),
+                    waitParam,
+                ).catch((error) => {
+                    BunLogModule({
+                        message: `PGWEB: unhealthy`,
+                        type: "error",
+                        error,
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(1);
+                });
+                BunLogModule({
+                    message: `PGWEB: healthy`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                process.exit(0);
+                break;
+            }
+
+            case "server:api:ws:manager:health": {
+                const waitParam = parseWaitFlags(additionalArgs);
+                await Server_CLI.withWait<void>(
+                    () =>
+                        Server_CLI.checkContainer(
+                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_CONTAINER_NAME,
+                        ),
+                    waitParam,
+                ).catch((error) => {
+                    BunLogModule({
+                        message: `World API WS Manager: unhealthy`,
+                        type: "error",
+                        error,
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(1);
+                });
+                BunLogModule({
+                    message: `World API WS Manager: healthy`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                process.exit(0);
+                break;
+            }
+
+            case "server:api:rest:auth:manager:health": {
+                const waitParam = parseWaitFlags(additionalArgs);
+                await Server_CLI.withWait<void>(
+                    () =>
+                        Server_CLI.checkContainer(
+                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME,
+                        ),
+                    waitParam,
+                ).catch((error) => {
+                    BunLogModule({
+                        message: `World API REST Auth Manager: unhealthy`,
+                        type: "error",
+                        error,
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(1);
+                });
+                BunLogModule({
+                    message: `World API REST Auth Manager: healthy`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                process.exit(0);
+                break;
+            }
+
+            case "server:api:rest:asset:manager:health": {
+                const waitParam = parseWaitFlags(additionalArgs);
+                await Server_CLI.withWait<void>(
+                    () =>
+                        Server_CLI.checkContainer(
+                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME,
+                        ),
+                    waitParam,
+                ).catch((error) => {
+                    BunLogModule({
+                        message: `World API REST Asset Manager: unhealthy`,
+                        type: "error",
+                        error,
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(1);
+                });
+                BunLogModule({
+                    message: `World API REST Asset Manager: healthy`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                process.exit(0);
+                break;
+            }
+
+            case "server:api:rest:inference:manager:health": {
+                const waitParam = parseWaitFlags(additionalArgs);
+                await Server_CLI.withWait<void>(
+                    () =>
+                        Server_CLI.checkContainer(
+                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_CONTAINER_NAME,
+                        ),
+                    waitParam,
+                ).catch((error) => {
+                    BunLogModule({
+                        message: `World API REST Inference Manager: unhealthy`,
+                        type: "error",
+                        error,
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(1);
+                });
+                BunLogModule({
+                    message: `World API REST Inference Manager: healthy`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                process.exit(0);
+                break;
+            }
+
+            case "server:state:manager:health": {
+                const waitParam = parseWaitFlags(additionalArgs);
+                await Server_CLI.withWait<void>(
+                    () =>
+                        Server_CLI.checkContainer(
+                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME,
+                        ),
+                    waitParam,
+                ).catch((error) => {
+                    BunLogModule({
+                        message: `World State Manager: unhealthy`,
+                        type: "error",
+                        error,
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(1);
+                });
+                BunLogModule({
+                    message: `World State Manager: healthy`,
+                });
+                process.exit(0);
+                break;
+            }
 
             // SERVER POSTGRES DATABASE COMMANDS
             case "server:postgres:migrate": {
@@ -2113,6 +2832,11 @@ if (import.meta.main) {
                 break;
             }
 
+            case "server:egress:list": {
+                await Server_CLI.printEgressInfo();
+                break;
+            }
+
             // Generic docker command support
             case "server:run-command":
                 await Server_CLI.runServerDockerCommand({
@@ -2120,37 +2844,1241 @@ if (import.meta.main) {
                 });
                 break;
 
-            case "client:set-uri": {
-                // Get the current URI from environment
-                const currentUri =
-                    process.env
-                        .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI ||
-                    "localhost:3020";
+            case "configure": {
+                // Configuration loop - keeps showing main menu until user exits
+                let continueConfiguring = true;
 
-                // Use inquirer to prompt user
-                const newUri = await input({
-                    message: "Enter World API URI:",
-                    default: currentUri,
-                });
+                while (continueConfiguring) {
+                    // Get current values from environment (refresh each time)
+                    // Read from client .env first, then process.env, then config defaults
+                    const currentClientDefaultHost =
+                        (await EnvManager.getVariable(
+                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST",
+                            "client",
+                        )) ??
+                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST;
 
-                // Set it as an environment variable for the current session
-                process.env.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI =
-                    newUri;
+                    const currentServerDefaultHost =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_DEFAULT_HOST",
+                            "cli",
+                        )) ??
+                        process.env.VRCA_SERVER_DEFAULT_HOST ??
+                        serverConfiguration.VRCA_SERVER_DEFAULT_HOST;
 
-                BunLogModule({
-                    message: `World API URI set to: ${newUri} (for current session only)`,
-                    type: "success",
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
+                    const currentUserComponentsPathRelative =
+                        (await EnvManager.getVariable(
+                            "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_RELATIVE",
+                            "client",
+                        )) ??
+                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_RELATIVE;
 
-                BunLogModule({
-                    message: `To persist this setting, add the following to your shell profile:\nexport VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI="${newUri}"`,
-                    type: "info",
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
+                    const currentUserComponentsPathAbsolute =
+                        (await EnvManager.getVariable(
+                            "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_ABSOLUTE",
+                            "client",
+                        )) ??
+                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_ABSOLUTE;
 
+
+
+
+
+                    const currentCaddyHostBind =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL;
+
+                    const currentCaddyPortBindHttp =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP;
+
+                    const currentCaddyPortBindHttps =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS;
+
+                    const currentCaddyTlsApi =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_CADDY_TLS_MODE",
+                            "cli",
+                        )) ||
+                        process.env.VRCA_SERVER_SERVICE_CADDY_TLS_MODE ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_MODE;
+
+
+
+                    // Model Definitions configuration has been removed
+
+                    // Get current Inference Provider values
+                    // Read from CLI .env first, then process.env, then config defaults
+                    const currentCerebrasApiKey =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY ||
+                        "";
+
+                    const currentCerebrasModel =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL ||
+                        "";
+
+                    const currentGroqApiKey =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY ||
+                        "";
+
+                    const currentGroqSttModel =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL ||
+                        "";
+
+                    const currentGroqTtsModel =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL ||
+                        "";
+
+                    const currentGroqTtsVoice =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE ||
+                        "";
+
+                    // Get current CLI environment values
+                    // Read from CLI .env first, then process.env, then config defaults
+                    const currentUserSqlDir =
+                        (await EnvManager.getVariable(
+                            "VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR ||
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR ||
+                        "Not set";
+
+                    const currentUserAssetDir =
+                        (await EnvManager.getVariable(
+                            "VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR ||
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR ||
+                        "Not set";
+
+                    // First ask what to configure
+                    const configOption = await select({
+                        message: "What would you like to configure?\n",
+                        pageSize: 15,
+                        choices: [
+                            new Separator("========================="),
+                            new Separator("=== 🌐 Browser Client ==="),
+                            new Separator("========================="),
+                            {
+                                name: `User Browser Client -> Default Host\n    Current: ${currentClientDefaultHost}`,
+                                value: "client-default-host",
+                                description:
+                                    "The default host for the browser client to connect to.",
+                            },
+                            {
+                                name: `User Browser Client -> User Components Path (Relative)\n    Current: ${currentUserComponentsPathRelative}`,
+                                value: "user-components-path-relative",
+                                description:
+                                    "Directory path relative to 'src/user' used by the client to load user components.",
+                            },
+                            {
+                                name: `User Browser Client -> User Components Path (Absolute)\n    Current: ${currentUserComponentsPathAbsolute || "Not set"}\n    ${currentUserComponentsPathAbsolute ? "(Overrides Relative Path)" : ""}`,
+                                value: "user-components-path-absolute",
+                                description:
+                                    "Absolute directory path used by the client to load user components. Takes precedence over relative path.",
+                            },
+                            new Separator("================================"),
+                            new Separator("=== 🔄 Caddy (Reverse Proxy) ==="),
+                            new Separator("================================"),
+
+
+                            {
+                                name: `Caddy Container Host Bind\n    Current: ${currentCaddyHostBind}`,
+                                value: "caddy-host-bind",
+                                description:
+                                    "The host bind for the Caddy container.",
+                            },
+                            {
+                                name: `Caddy Container HTTP Port Bind\n    Current: ${currentCaddyPortBindHttp}`,
+                                value: "caddy-port-bind-http",
+                                description:
+                                    "The HTTP port bind for the Caddy container.",
+                            },
+                            {
+                                name: `Caddy Container HTTPS Port Bind\n    Current: ${currentCaddyPortBindHttps}`,
+                                value: "caddy-port-bind-https",
+                                description:
+                                    "The HTTPS port bind for the Caddy container.",
+                            },
+                            {
+                                name: `Caddy TLS Mode\n    Current: ${currentCaddyTlsApi || "Default (SSL enabled)"}`,
+                                value: "caddy-tls-api",
+                                description:
+                                    "Configure TLS for the API domain. Use 'tls internal' for internal CA or leave empty for ACME.",
+                            },
+
+                            new Separator("==================="),
+                            new Separator("=== 🗄️ Database ==="),
+                            new Separator("==================="),
+                            {
+                                name: `User SQL Seed Directory\n    Current: ${currentUserSqlDir}`,
+                                value: "user-sql-dir",
+                                description:
+                                    "The directory with the user SQL seed files. (Optional)",
+                            },
+                            {
+                                name: `User Asset Seed Directory\n    Current: ${currentUserAssetDir}`,
+                                value: "user-asset-dir",
+                                description:
+                                    "The directory with the user asset seed files. (Optional)",
+                            },
+                            new Separator("================================"),
+                            new Separator("=== 🤖 Inference Providers ==="),
+                            new Separator("================================"),
+                            {
+                                name: `Cerebras API Key\n    Current: ${currentCerebrasApiKey ? "***hidden***" : "Not set"}`,
+                                value: "cerebras-api-key",
+                                description:
+                                    "The API key for Cerebras inference provider.",
+                            },
+                            {
+                                name: `Cerebras Model\n    Current: ${currentCerebrasModel}`,
+                                value: "cerebras-model",
+                                description:
+                                    "The model to use for Cerebras inference.",
+                            },
+                            {
+                                name: `Groq API Key\n    Current: ${currentGroqApiKey ? "***hidden***" : "Not set"}`,
+                                value: "groq-api-key",
+                                description:
+                                    "The API key for Groq inference provider.",
+                            },
+                            {
+                                name: `Groq STT Model\n    Current: ${currentGroqSttModel}`,
+                                value: "groq-stt-model",
+                                description:
+                                    "The Speech-to-Text model to use for Groq.",
+                            },
+                            {
+                                name: `Groq TTS Model\n    Current: ${currentGroqTtsModel}`,
+                                value: "groq-tts-model",
+                                description:
+                                    "The Text-to-Speech model to use for Groq.",
+                            },
+                            {
+                                name: `Groq TTS Voice\n    Current: ${currentGroqTtsVoice}`,
+                                value: "groq-tts-voice",
+                                description:
+                                    "The voice to use for Groq Text-to-Speech.",
+                            },
+
+                            new Separator("=================="),
+                            new Separator("=== 🖥️ Server ==="),
+                            new Separator("=================="),
+                            {
+                                name: `Server -> Default Host\n    Current: ${currentServerDefaultHost}`,
+                                value: "server-default-host",
+                                description:
+                                    "The default public host for the server.",
+                            },
+                            new Separator("========================"),
+                            new Separator(">>>>>> ⚙️ Actions <<<<<<"),
+                            new Separator("========================"),
+                            {
+
+                                name: "View all current configuration",
+                                value: "view-all",
+                            },
+                            {
+                                name: "Exit configuration",
+                                value: "exit",
+                            },
+                        ],
+                    });
+
+                    // Handle exit option
+                    if (configOption === "exit") {
+                        continueConfiguring = false;
+                        break;
+                    }
+
+                    if (configOption === "client-default-host") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with User Browser Client Default Host?\n",
+
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in client .env\n    Current: ${currentClientDefaultHost}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from client .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newHost = await input({
+                                message: "Enter User Browser Client Default Host:",
+                                default: currentClientDefaultHost,
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST",
+                                newHost,
+                                "client",
+                            );
+
+                            BunLogModule({
+                                message: `User Browser Client Default Host set to: ${newHost} (persisted to client .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST",
+                                "client",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "User Browser Client Default Host variable unset (removed from client .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "server-default-host") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Server Default Host?\n",
+
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentServerDefaultHost}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newHost = await input({
+                                message: "Enter Server Default Host:",
+                                default: currentServerDefaultHost,
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_DEFAULT_HOST",
+                                newHost,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Server Default Host set to: ${newHost} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_DEFAULT_HOST",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Server Default Host variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "user-components-path-relative") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with User Components Path (Relative)?\n",
+
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in client .env\n    Current: ${currentUserComponentsPathRelative}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from client .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newDir = await input({
+                                message:
+                                    "Enter User Components Directory path (relative to src/user):",
+                                default: currentUserComponentsPathRelative,
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_RELATIVE",
+                                newDir,
+                                "client",
+                            );
+
+                            BunLogModule({
+                                message: `User Components Path (Relative) set to: ${newDir} (persisted to client .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_RELATIVE",
+                                "client",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "User Components Path (Relative) variable unset (removed from client .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "user-components-path-absolute") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with User Components Path (Absolute)?\n",
+
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in client .env\n    Current: ${currentUserComponentsPathAbsolute}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from client .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newDir = await input({
+                                message:
+                                    "Enter User Components Directory path (absolute):",
+                                default: currentUserComponentsPathAbsolute,
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_ABSOLUTE",
+                                newDir,
+                                "client",
+                            );
+
+                            BunLogModule({
+                                message: `User Components Path (Absolute) set to: ${newDir} (persisted to client .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_PATH_ABSOLUTE",
+                                "client",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "User Components Path (Absolute) variable unset (removed from client .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "user-sql-dir") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with User SQL Seed Directory?\n",
+
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentUserSqlDir}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newDir = await input({
+                                message: "Enter User SQL Seed Directory path:",
+                                default:
+                                    currentUserSqlDir !== "Not set"
+                                        ? currentUserSqlDir
+                                        : "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR",
+                                newDir,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `User SQL Seed Directory set to: ${newDir} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "User SQL Seed Directory variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "caddy-host-bind") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Caddy Host Bind?\n",
+
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyHostBind}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newHost = await input({
+                                message: "Enter Caddy Host Bind:",
+                                default: currentCaddyHostBind,
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL",
+                                newHost,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Caddy Host Bind set to: ${newHost} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Caddy Host Bind variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "caddy-port-bind-http") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Caddy HTTP Port Bind?\n",
+
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyPortBindHttp}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newPort = await input({
+                                message: "Enter Caddy HTTP Port Bind:",
+                                default: currentCaddyPortBindHttp.toString(),
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP",
+                                newPort,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Caddy HTTP Port Bind set to: ${newPort} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Caddy HTTP Port Bind variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "caddy-port-bind-https") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Caddy HTTPS Port Bind?\n",
+
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyPortBindHttps}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newPort = await input({
+                                message: "Enter Caddy HTTPS Port Bind:",
+                                default: currentCaddyPortBindHttps.toString(),
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS",
+                                newPort,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Caddy HTTPS Port Bind set to: ${newPort} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Caddy HTTPS Port Bind variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "caddy-tls") {
+                        // Back-compat: map legacy TLS option to API TLS
+                        const action = await select({
+                            message:
+                                "What would you like to do with Caddy TLS Mode?\n",
+
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyTlsApi || "Default (SSL enabled)"}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newTlsMode = await input({
+                                message:
+                                    "Enter Caddy TLS Mode (leave empty for SSL enabled, 'tls internal' for internal):",
+                                default: currentCaddyTlsApi || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_TLS_MODE",
+                                newTlsMode,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Caddy TLS Mode set to: ${newTlsMode || "Default (SSL enabled)"} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_TLS_MODE",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Caddy TLS Mode variable unset (removed from CLI .env file)",
+                                type: "info",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "caddy-tls-api") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Caddy TLS Mode?\n",
+
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyTlsApi || "Default (SSL enabled)"}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newTlsMode = await input({
+                                message:
+                                    "Enter Caddy TLS Mode (leave empty for SSL enabled, 'tls internal' for internal):",
+                                default: currentCaddyTlsApi || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_TLS_MODE",
+                                newTlsMode,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Caddy TLS Mode set to: ${newTlsMode || "Default (SSL enabled)"} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_TLS_MODE",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Caddy TLS Mode variable unset (removed from CLI .env file)",
+                                type: "info",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+
+                    } else if (configOption === "user-asset-dir") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with User Asset Seed Directory?\n",
+
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentUserAssetDir}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newDir = await input({
+                                message:
+                                    "Enter User Asset Seed Directory path:",
+                                default:
+                                    currentUserAssetDir !== "Not set"
+                                        ? currentUserAssetDir
+                                        : "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR",
+                                newDir,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `User Asset Seed Directory set to: ${newDir} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "User Asset Seed Directory variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "cerebras-api-key") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Cerebras API Key?\n",
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCerebrasApiKey ? "***hidden***" : "Not set"}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newApiKey = await input({
+                                message: "Enter Cerebras API Key:",
+                                default: currentCerebrasApiKey || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY",
+                                newApiKey,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Cerebras API Key set (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Cerebras API Key variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "cerebras-model") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Cerebras Model?\n",
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCerebrasModel}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newModel = await input({
+                                message: "Enter Cerebras Model:",
+                                default: currentCerebrasModel || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL",
+                                newModel,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Cerebras Model set to: ${newModel} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Cerebras Model variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "groq-api-key") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Groq API Key?\n",
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentGroqApiKey ? "***hidden***" : "Not set"}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newApiKey = await input({
+                                message: "Enter Groq API Key:",
+                                default: currentGroqApiKey || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY",
+                                newApiKey,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Groq API Key set (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Groq API Key variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "groq-stt-model") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Groq STT Model?\n",
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentGroqSttModel}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newModel = await input({
+                                message: "Enter Groq STT Model:",
+                                default: currentGroqSttModel || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL",
+                                newModel,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Groq STT Model set to: ${newModel} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Groq STT Model variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "groq-tts-model") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Groq TTS Model?\n",
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentGroqTtsModel}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newModel = await input({
+                                message: "Enter Groq TTS Model:",
+                                default: currentGroqTtsModel || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL",
+                                newModel,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Groq TTS Model set to: ${newModel} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Groq TTS Model variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "groq-tts-voice") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Groq TTS Voice?\n",
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentGroqTtsVoice}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newVoice = await input({
+                                message: "Enter Groq TTS Voice:",
+                                default: currentGroqTtsVoice || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE",
+                                newVoice,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Groq TTS Voice set to: ${newVoice} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Groq TTS Voice variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "view-all") {
+                        BunLogModule({
+                            message: "Current Configuration:",
+                            type: "info",
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+
+                        console.log(`\nBrowser Client Configuration:`);
+                        console.log(
+                            `  Default Host: ${currentClientDefaultHost}`,
+                        );
+                        console.log(
+                            `  User Components Path (Relative): ${currentUserComponentsPathRelative}`,
+                        );
+                        console.log(
+                            `  User Components Path (Absolute): ${currentUserComponentsPathAbsolute || "Not set"}`,
+                        );
+
+                        console.log(`\n\nCaddy (Reverse Proxy):`);
+                        console.log(`  Default Public Host: ${currentServerDefaultHost}`);
+
+                        console.log(`  Host Bind: ${currentCaddyHostBind}`);
+                        console.log(
+                            `  HTTP Port Bind: ${currentCaddyPortBindHttp}`,
+                        );
+                        console.log(
+                            `  HTTPS Port Bind: ${currentCaddyPortBindHttps}`,
+                        );
+                        console.log(
+                            `  TLS Mode: ${currentCaddyTlsApi || "Default (SSL enabled)"}`,
+                        );
+
+
+                        console.log(`\n\nCLI Configuration:`);
+                        console.log(
+                            `  User SQL Seed Directory: ${currentUserSqlDir}`,
+                        );
+                        console.log(
+                            `  User Asset Seed Directory: ${currentUserAssetDir}`,
+                        );
+
+                        console.log(`\n\nInference Providers:`);
+                        console.log(
+                            `  Cerebras API Key: ${currentCerebrasApiKey ? "***hidden***" : "Not set"}`,
+                        );
+                        console.log(
+                            `  Cerebras Model: ${currentCerebrasModel}`,
+                        );
+                        console.log(
+                            `  Groq API Key: ${currentGroqApiKey ? "***hidden***" : "Not set"}`,
+                        );
+                        console.log(`  Groq STT Model: ${currentGroqSttModel}`);
+                        console.log(`  Groq TTS Model: ${currentGroqTtsModel}`);
+                        console.log(`  Groq TTS Voice: ${currentGroqTtsVoice}`);
+                    }
+                } // Close the while loop
                 break;
             }
 
@@ -2162,6 +4090,81 @@ if (import.meta.main) {
                 //     debug: cliConfiguration.VRCA_CLI_DEBUG,
                 //     compileForce: true,
                 // });
+                break;
+            }
+
+            // PROJECT AUTO-UPGRADE (one-time upgrade)
+            case "project:auto-upgrade": {
+                const isCore = additionalArgs.includes("--core");
+                const isAll = additionalArgs.includes("--all");
+                const result = await $`git rev-parse --abbrev-ref HEAD`;
+                const currentBranch = result.stdout.toString().trim();
+
+                BunLogModule({
+                    message: `Starting one-time auto-upgrade on current branch for ${isCore ? "core services only" : "all services"}`,
+                    data: { currentBranch },
+                    type: "info",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+
+                await $`git fetch --all --prune --recurse-submodules`.nothrow();
+
+                try {
+                    BunLogModule({
+                        message: `Updating current branch '${currentBranch}' for ${isCore ? "core services only" : "all services"}...`,
+                        type: "info",
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+
+                    // Update submodules recursively
+                    await $`git submodule update --init --recursive`.nothrow();
+
+                    // Fetch and pull current branch with recursive submodules
+                    const pull =
+                        await $`git pull --rebase --recurse-submodules origin ${currentBranch}`
+                            .nothrow()
+                            .quiet();
+                    if (pull.exitCode !== 0)
+                        throw new Error(
+                            `pull failed: ${pull.stderr.toString()}`,
+                        );
+
+                    BunLogModule({
+                        message: `Rebuilding ${isCore ? "core services only" : "all services"}...`,
+                        type: "info",
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    const result =
+                        await $`bun run server:rebuild-${isCore ? "core" : "all"}`.nothrow();
+                    if (result.exitCode !== 0) {
+                        throw new Error(
+                            `rebuild failed: ${result.stderr.toString()}`,
+                        );
+                    }
+
+                    BunLogModule({
+                        message: `Auto-upgrade completed successfully for ${isCore ? "core services only" : "all services"}`,
+                        type: "success",
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                } catch (error) {
+                    BunLogModule({
+                        message: `Auto-upgrade failed for ${isCore ? "core services only" : "all services"}: ${error instanceof Error ? error.message : String(error)}`,
+                        type: "error",
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    throw error;
+                }
+                break;
+            }
+
+            case "client:autonomous-agent": {
+                await AutonomousAgent_CLI.run();
                 break;
             }
 

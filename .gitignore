@@ -1,1 +1,7 @@
 node_modules
+# Environment files
+.env
+.env.*
+!.env.example
+.tmp
+.DS_Store

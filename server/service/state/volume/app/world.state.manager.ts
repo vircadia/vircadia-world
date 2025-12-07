@@ -1,11 +1,13 @@
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
-import type postgres from "postgres";
+// Switched to legacy postgres.js client for now
+import type { Sql } from "postgres";
+import type { SQL } from "bun";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import {
-    Service,
     type Auth,
     type Tick,
     type Config,
+    Communication,
 } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import type { Server } from "bun";
@@ -16,7 +18,8 @@ export class WorldStateManager {
     private intervalIds: Map<string, Timer> = new Map();
     private syncGroups: Map<string, Auth.SyncGroup.I_SyncGroup> = new Map();
     private tickCounts: Map<string, number> = new Map();
-    private superUserSql: postgres.Sql | null = null;
+    private superUserSql: SQL | null = null;
+    private legacySuperSql: Sql | null = null;
     private processingTicks: Set<string> = new Set(); // Track which sync groups are currently processing
     private pendingTicks: Map<string, boolean> = new Map(); // Track pending ticks for sync groups
     private entityExpiryIntervalId: Timer | null = null;
@@ -34,13 +37,12 @@ export class WorldStateManager {
             });
 
             Bun.serve({
-                hostname:
-                    serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
-                port: serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL,
+                hostname: "0.0.0.0",
+                port: 3021,
                 development: serverConfiguration.VRCA_SERVER_DEBUG,
 
                 websocket: {
-                    message(ws, message) {},
+                    message(_ws, _message) {},
                 },
 
                 // #region API -> HTTP Routes
@@ -50,9 +52,9 @@ export class WorldStateManager {
                     // Handle stats
                     if (
                         url.pathname.startsWith(
-                            Service.State.Stats_Endpoint.path,
+                            Communication.REST_BASE_STATE_PATH,
                         ) &&
-                        req.method === Service.State.Stats_Endpoint.method
+                        req.method === Communication.REST.Endpoint.STATE_STATS.method
                     ) {
                         const requestIP =
                             req.headers.get("x-forwarded-for")?.split(",")[0] ||
@@ -66,7 +68,7 @@ export class WorldStateManager {
                             requestIP !== "localhost"
                         ) {
                             return Response.json(
-                                Service.State.Stats_Endpoint.createError(
+                                Communication.REST.Endpoint.STATE_STATS.createError(
                                     "Forbidden.",
                                 ),
                             );
@@ -115,7 +117,7 @@ export class WorldStateManager {
 
                         // Create response with additional data and return
                         const responseData =
-                            Service.State.Stats_Endpoint.createSuccess(
+                            Communication.REST.Endpoint.STATE_STATS.createSuccess(
                                 standardStatsData,
                             );
 
@@ -128,6 +130,22 @@ export class WorldStateManager {
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             }).getSuperClient({
+                postgres: {
+                    host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                    port: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
+                    database:
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
+                    username:
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    password:
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                },
+            });
+
+            this.legacySuperSql = await BunPostgresClientModule.getInstance({
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            }).getLegacySuperClient({
                 postgres: {
                     host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
                     port: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
@@ -175,13 +193,30 @@ export class WorldStateManager {
                 });
             }
 
-            await this.superUserSql`LISTEN tick_captured`;
-            this.superUserSql.listen("tick_captured", (payload) => {
+            await this.legacySuperSql`LISTEN reflect_tick`;
+            this.legacySuperSql.listen("reflect_tick", (payload) => {
+                this.handleReflectTickNotification(payload);
+            });
+
+            // Also listen for database tick state captured notifications
+            await this.legacySuperSql`LISTEN tick_state_captured`;
+            this.legacySuperSql.listen("tick_state_captured", (payload) => {
                 this.handleTickCapturedNotification(payload);
             });
 
-            // Start tick loops for each sync group
+            // Start tick loops for each sync group, respecting enabled flag (default enabled if undefined)
             for (const [syncGroup, config] of this.syncGroups.entries()) {
+                if (config.server__tick__state__enabled === false) {
+                    BunLogModule({
+                        message: `Ticking disabled for sync group: ${syncGroup}`,
+                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                        suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                        type: "info",
+                        prefix: LOG_PREFIX,
+                    });
+                    continue;
+                }
+
                 if (this.intervalIds.has(syncGroup)) {
                     continue;
                 }
@@ -189,6 +224,13 @@ export class WorldStateManager {
                 // Initialize first tick for each sync group
                 this.scheduleTick(syncGroup);
             }
+
+            const enabledGroups = Array.from(this.syncGroups.entries())
+                .filter(([_, cfg]) => cfg.server__tick__state__enabled !== false)
+                .map(([name]) => name);
+            const disabledGroups = Array.from(this.syncGroups.entries())
+                .filter(([_, cfg]) => cfg.server__tick__state__enabled === false)
+                .map(([name]) => name);
 
             BunLogModule({
                 message: `World State Manager initialized successfully with ${this.syncGroups.size} sync groups, entity expiry checking, and metadata expiry checking`,
@@ -198,6 +240,9 @@ export class WorldStateManager {
                 prefix: LOG_PREFIX,
                 data: {
                     syncGroups: this.syncGroups.size,
+                    tickEnabledGroups: enabledGroups.length,
+                    tickDisabledGroups: disabledGroups.length,
+                    disabledSyncGroups: disabledGroups,
                     entityExpiryEnabled: !!this.entityConfig,
                     entityExpiryInterval:
                         this.entityConfig
@@ -254,6 +299,29 @@ export class WorldStateManager {
         }
     }
 
+    private async handleReflectTickNotification(notification: string): Promise<void> {
+        try {
+            const data = JSON.parse(notification);
+            const syncGroup = data.syncGroup;
+            BunLogModule({
+                message: `Received reflect tick for sync group: ${syncGroup}`,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "debug",
+                prefix: LOG_PREFIX,
+                data,
+            });
+        } catch (error) {
+            BunLogModule({
+                message: `Error processing reflect tick notification: ${error}`,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+                prefix: LOG_PREFIX,
+            });
+        }
+    }
+
     private scheduleTick(syncGroup: string) {
         const config = this.syncGroups.get(syncGroup);
         if (!config) {
@@ -262,6 +330,18 @@ export class WorldStateManager {
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "error",
+                prefix: LOG_PREFIX,
+            });
+            return;
+        }
+
+        // Respect disabled flag (default enabled if undefined)
+        if (config.server__tick__state__enabled === false) {
+            BunLogModule({
+                message: `Skipping tick scheduling; disabled for sync group: ${syncGroup}`,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "debug",
                 prefix: LOG_PREFIX,
             });
             return;
@@ -438,6 +518,27 @@ export class WorldStateManager {
                     prefix: LOG_PREFIX,
                 });
             });
+
+            // Notify that the tick has been processed by the service layer
+            try {
+                await this.superUserSql`
+                    SELECT tick.notify_tick_processed(
+                        ${syncGroup},
+                        ${result.tick_data.general__tick_id},
+                        ${result.tick_data.tick__number},
+                        ${managerDurationMs},
+                        ${managerIsDelayed}
+                    )
+                `;
+            } catch (error) {
+                BunLogModule({
+                    message: `Failed to notify tick_processed: ${error}`,
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    type: "error",
+                    prefix: LOG_PREFIX,
+                });
+            }
         }
     }
 
@@ -594,10 +695,13 @@ export class WorldStateManager {
                     (e) => e.general__entity_name,
                 );
 
-                await this.superUserSql`
-                    DELETE FROM entity.entities 
-                    WHERE general__entity_name = ANY(${entityNames})
-                `;
+                const placeholders = entityNames
+                    .map((_, i) => `$${i + 1}`)
+                    .join(", ");
+                await this.superUserSql.unsafe(
+                    `DELETE FROM entity.entities WHERE general__entity_name IN (${placeholders})`,
+                    entityNames,
+                );
 
                 BunLogModule({
                     message: `Successfully deleted ${expiredEntities.length} expired entities`,
@@ -815,12 +919,23 @@ export class WorldStateManager {
         this.stop();
 
         // Unlisten from notifications if possible
-        if (this.superUserSql) {
+        if (this.legacySuperSql) {
             try {
-                this.superUserSql`UNLISTEN tick_captured`.catch(
+                this.legacySuperSql`UNLISTEN reflect_tick`.catch(
                     (error: unknown) => {
                         BunLogModule({
                             message: `Error unlistening from tick notifications: ${error}`,
+                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                            type: "error",
+                            prefix: LOG_PREFIX,
+                        });
+                    },
+                );
+                this.legacySuperSql`UNLISTEN tick_state_captured`.catch(
+                    (error: unknown) => {
+                        BunLogModule({
+                            message: `Error unlistening from tick state notifications: ${error}`,
                             debug: serverConfiguration.VRCA_SERVER_DEBUG,
                             suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                             type: "error",

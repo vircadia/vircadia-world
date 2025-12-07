@@ -1,2 +1,15 @@
 # Track all files in the asset directory with Git LFS
 cli/database/seed/asset/** filter=lfs diff=lfs merge=lfs -text
+# Track all model and world related files with Git LFS
+**/*.gltf filter=lfs diff=lfs merge=lfs -text
+**/*.glb filter=lfs diff=lfs merge=lfs -text
+**/*.jpg filter=lfs diff=lfs merge=lfs -text
+**/*.png filter=lfs diff=lfs merge=lfs -text
+**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+**/*.hdr filter=lfs diff=lfs merge=lfs -text
+**/*.exr filter=lfs diff=lfs merge=lfs -text
+**/*.env filter=lfs diff=lfs merge=lfs -text
+# Compiled & WASM files
+**/*.wasm filter=lfs diff=lfs merge=lfs -text
+**/*.js filter=lfs diff=lfs merge=lfs -text
+

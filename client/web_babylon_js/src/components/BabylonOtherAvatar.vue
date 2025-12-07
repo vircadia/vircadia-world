@@ -1,58 +1,76 @@
 <template>
-    <!-- No visual output needed for this component -->
+    <ChatBubble v-if="isModelLoaded && avatarNode" :scene="scene" :avatar-node="avatarNode" :messages="chatData" />
 </template>
 
 <script setup lang="ts">
 import {
-    ref,
-    onMounted,
-    onUnmounted,
-    watch,
-    inject,
-    toRefs,
-    type Ref,
-} from "vue";
-import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
-import { useAppStore } from "@/stores/appStore";
-import {
-    Vector3,
+    type AbstractMesh,
     Quaternion,
-    TransformNode,
-    Matrix,
-    Space,
     type Scene,
     type Skeleton,
-    type AbstractMesh,
-    type AnimationGroup,
-    type Bone,
+    Space,
+    TransformNode,
+    Vector3,
 } from "@babylonjs/core";
+import { onMounted, onUnmounted, type Ref, ref, watch } from "vue";
 import "@babylonjs/loaders/glTF";
-import { useAsset } from "@vircadia/world-sdk/browser/vue";
 import { ImportMeshAsync } from "@babylonjs/core";
-import {
-    AvatarMetadataSchema,
-    AvatarJointMetadataSchema,
-    type AvatarMetadata,
-    type AvatarJointMetadata,
-} from "../composables/schemas";
 import type {
-    PositionObj,
-    RotationObj,
-} from "../composables/useBabylonAvatarPhysicsController";
+    AvatarBaseData,
+    AvatarFrameMessage,
+    AvatarJointMetadata,
+    AvatarPositionData,
+    AvatarRotationData,
+    DebugData,
+    DebugWindow,
+} from "@schemas";
+import { AvatarFrameMessageSchema, type ChatMessage } from "@/schemas";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+import ChatBubble from "./ChatBubble.vue";
+
+// Local helper types (previously from physics controller composable)
+type PositionObj = { x: number; y: number; z: number };
+type RotationObj = { x: number; y: number; z: number; w: number };
 
 // Define component props
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
-    sessionId: { type: String, required: true },
+    sessionId: { type: String, required: true }, // Full sessionId in format "sessionId-instanceId"
+    vircadiaWorld: {
+        type: Object as () => VircadiaWorldInstance,
+        required: true,
+    },
+    avatarData: { type: Object as () => AvatarBaseData, required: false },
+    positionData: { type: Object as () => AvatarPositionData, required: false },
+    rotationData: { type: Object as () => AvatarRotationData, required: false },
+    jointData: {
+        type: Object as () => Map<string, AvatarJointMetadata>,
+        required: false,
+    },
+    chatData: {
+        type: Array as () => ChatMessage[],
+        required: false,
+        default: () => [],
+    },
 });
 
-const emit = defineEmits<{ ready: []; dispose: [] }>();
+const emit = defineEmits<{
+    ready: [];
+    dispose: [];
+    "avatar-removed": [{ sessionId: string }];
+}>();
 
-// Load avatar configuration from global store
-const appStore = useAppStore();
-const avatarDefinition = appStore.avatarDefinition;
-const { modelFileName, meshPivotPoint, capsuleHeight } =
-    toRefs(avatarDefinition);
+// Avatar configuration defaults
+const defaultAvatarDefinition = {
+    modelFileName: "babylon.avatar.glb",
+    meshPivotPoint: "bottom" as const,
+    capsuleHeight: 1.8,
+};
+const modelFileName = ref<string>(defaultAvatarDefinition.modelFileName);
+const meshPivotPoint = ref<"bottom" | "center">(
+    defaultAvatarDefinition.meshPivotPoint,
+);
+const capsuleHeight = ref<number>(defaultAvatarDefinition.capsuleHeight);
 
 // Refs for avatar model components
 const avatarNode: Ref<TransformNode | null> = ref(null);
@@ -60,33 +78,39 @@ const meshes: Ref<AbstractMesh[]> = ref([]);
 const avatarSkeleton: Ref<Skeleton | null> = ref(null);
 const isModelLoaded = ref(false);
 
-// Store last received metadata for debugging
-const lastReceivedMetadata: Ref<AvatarMetadata | null> = ref(null);
-// Store last received joint metadata map
-const lastReceivedJoints: Ref<Map<string, AvatarJointMetadata>> = ref(
-    new Map(),
-);
+// Store current avatar data and joint data from props
+const currentPositionData: Ref<AvatarPositionData | null> = ref(null);
+const currentRotationData: Ref<AvatarRotationData | null> = ref(null);
+const currentJointData: Ref<Map<string, AvatarJointMetadata>> = ref(new Map());
 
-// Track the last successful poll timestamp for incremental updates
-// This optimization allows us to only fetch joints that have been updated since
-// the last poll, reducing data transfer and allowing more frequent polling
-const lastPollTimestamp: Ref<Date | null> = ref(null);
+// LERP Smoothing Configuration
+const AVATAR_SMOOTH_FACTOR = 0.2; // Main avatar position/rotation (0.1-0.3 recommended)
+const BONE_SMOOTH_FACTOR = 0.25; // Bone transforms (slightly faster for responsiveness)
 
-// Get Vircadia instance
-const vircadiaWorld = inject(useVircadiaInstance());
-if (!vircadiaWorld) {
-    throw new Error("Vircadia instance not found in BabylonOtherAvatar");
+// Target transforms for smooth interpolation
+const targetPosition = ref<Vector3>(new Vector3());
+const targetRotation = ref<Quaternion>(new Quaternion());
+const targetBoneTransforms = ref<
+    Map<
+        string,
+        {
+            position: Vector3;
+            rotation: Quaternion;
+            scale: Vector3;
+        }
+    >
+>(new Map());
+
+// Render loop observer for smooth interpolation
+let renderObserver: (() => void) | null = null;
+
+// Use Vircadia instance from props
+const vircadiaWorld = props.vircadiaWorld;
+
+// Build direct asset URL helper
+function buildDirectUrl(fileName: string): string {
+    return vircadiaWorld.client.buildAssetRequestUrl(fileName);
 }
-
-// Audio playback is now handled by BabylonWebRTC component
-
-// Asset loader for the avatar model
-const modelFileNameRef: Ref<string> = ref(modelFileName.value);
-const asset = useAsset({
-    fileName: modelFileNameRef,
-    useCache: true,
-    debug: false,
-});
 
 // Helper functions
 function objToVector(obj: PositionObj): Vector3 {
@@ -97,59 +121,91 @@ function objToQuat(obj: RotationObj): Quaternion {
     return new Quaternion(obj.x, obj.y, obj.z, obj.w);
 }
 
-// Type for debug data
-interface DebugData {
-    timestamp: string;
-    sessionId: string;
-    skeleton: {
-        boneCount: number;
-    };
-    bones: Record<
-        string,
-        {
-            p: string[];
-            r: string;
-        }
-    >;
+// Adaptive smooth factor based on distance (optional enhancement)
+function adaptiveSmoothFactor(
+    current: Vector3,
+    target: Vector3,
+    baseFactor: number,
+): number {
+    const distance = Vector3.Distance(current, target);
+
+    // If far away, catch up faster
+    if (distance > 2.0) return Math.min(0.5, baseFactor * 3);
+    if (distance > 0.5) return Math.min(0.3, baseFactor * 2);
+    return baseFactor;
 }
 
-// Type for debug window properties
-interface DebugWindow extends Window {
-    debugSkeletonLoop?: boolean;
-    debugBoneNames?: boolean;
-    debugOtherAvatar?: boolean;
-}
-
-// Helper function to retrieve metadata for an entity
-async function retrieveEntityMetadata(
-    entityName: string,
-): Promise<Map<string, unknown> | null> {
-    if (!vircadiaWorld) {
-        console.error("Vircadia instance not found");
-        return null;
-    }
-
-    try {
-        // Fetch all metadata for this entity
-        const metadataResult =
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
-                parameters: [entityName],
-            });
-
-        if (Array.isArray(metadataResult.result)) {
-            // Reconstruct metadata map from rows
-            const metadataMap = new Map<string, unknown>();
-            for (const row of metadataResult.result) {
-                metadataMap.set(row.metadata__key, row.metadata__value);
+// Watch for changes in avatar base data
+watch(
+    () => props.avatarData,
+    (newData) => {
+        if (newData && isModelLoaded.value) {
+            // Base avatar data changed; if we already have pos/rot, re-apply transforms
+            if (currentPositionData.value && currentRotationData.value) {
+                updateTargetTransforms(
+                    currentPositionData.value,
+                    currentRotationData.value,
+                    currentJointData.value,
+                );
             }
-            return metadataMap;
         }
-    } catch (e) {
-        console.error("Failed to retrieve metadata:", e);
-    }
-    return null;
-}
+    },
+    { deep: true },
+);
+
+// Watch for changes in position data
+watch(
+    () => props.positionData,
+    (newPosition) => {
+        if (newPosition && isModelLoaded.value) {
+            currentPositionData.value = newPosition;
+            if (currentRotationData.value) {
+                updateTargetTransforms(
+                    newPosition,
+                    currentRotationData.value,
+                    currentJointData.value,
+                );
+            }
+        }
+    },
+    { deep: true },
+);
+
+// Watch for changes in rotation data
+watch(
+    () => props.rotationData,
+    (newRotation) => {
+        if (newRotation && isModelLoaded.value) {
+            currentRotationData.value = newRotation;
+            if (currentPositionData.value) {
+                updateTargetTransforms(
+                    currentPositionData.value,
+                    newRotation,
+                    currentJointData.value,
+                );
+            }
+        }
+    },
+    { deep: true },
+);
+
+// Watch for changes in joint data
+watch(
+    () => props.jointData,
+    (newJointData) => {
+        if (newJointData && isModelLoaded.value) {
+            currentJointData.value = newJointData;
+            if (currentPositionData.value && currentRotationData.value) {
+                updateTargetTransforms(
+                    currentPositionData.value,
+                    currentRotationData.value,
+                    newJointData,
+                );
+            }
+        }
+    },
+    { deep: true },
+);
 
 // Load the avatar model
 async function loadAvatarModel() {
@@ -158,17 +214,22 @@ async function loadAvatarModel() {
     }
 
     try {
-        // Load the asset
-        await asset.executeLoad();
-        const assetData = asset.assetData.value;
-        if (!assetData?.blobUrl) {
-            console.warn("Asset blob URL not available for avatar model");
-            return;
-        }
-
-        // Import the model
-        const result = await ImportMeshAsync(assetData.blobUrl, props.scene, {
-            pluginExtension: asset.fileExtension.value,
+        // Load the asset using direct URL and extension from filename
+        const directUrl = buildDirectUrl(modelFileName.value);
+        const result = await ImportMeshAsync(directUrl, props.scene, {
+            pluginExtension: (() => {
+                const ext = modelFileName.value.split(".").pop()?.toLowerCase();
+                switch (ext) {
+                    case "glb":
+                        return ".glb";
+                    case "gltf":
+                        return ".gltf";
+                    case "fbx":
+                        return ".fbx";
+                    default:
+                        return "";
+                }
+            })(),
         });
 
         // Stop and dispose any default animations to prevent interference
@@ -185,6 +246,12 @@ async function loadAvatarModel() {
             props.scene,
         );
 
+        // Initialize position and rotation
+        targetPosition.value = new Vector3(0, 0, 0);
+        targetRotation.value = Quaternion.Identity();
+        avatarNode.value.position = targetPosition.value.clone();
+        avatarNode.value.rotationQuaternion = targetRotation.value.clone();
+
         // Store meshes and setup skeleton
         meshes.value = result.meshes;
 
@@ -197,14 +264,13 @@ async function loadAvatarModel() {
             mesh.parent = avatarNode.value;
         }
 
-        // Find and store skeleton - Use the first skeleton from import
+        // Find and store skeleton
         if (result.skeletons.length > 0) {
             avatarSkeleton.value = result.skeletons[0];
 
             // Ensure the skeleton is properly bound to its meshes
             for (const mesh of result.meshes) {
                 if (mesh.skeleton === avatarSkeleton.value) {
-                    // Force refresh of skeleton binding
                     mesh.skeleton = avatarSkeleton.value;
                 }
             }
@@ -226,18 +292,18 @@ async function loadAvatarModel() {
 
             // Initialize skeleton for proper bone manipulation
             avatarSkeleton.value.prepare();
-            // Force initial computation to ensure proper setup
             avatarSkeleton.value.computeAbsoluteMatrices(true);
 
             for (const bone of avatarSkeleton.value.bones) {
                 bone.linkTransformNode(null);
             }
-
-            // Note: GLTF skeletons don't expose bones as TransformNodes
-            // The bones are managed internally by the skeleton system
         }
 
         isModelLoaded.value = true;
+
+        // Setup smooth interpolation render loop
+        setupRenderLoop();
+
         emit("ready");
     } catch (error) {
         console.error(
@@ -247,49 +313,119 @@ async function loadAvatarModel() {
     }
 }
 
-// Apply avatar metadata to the model
-function applyAvatarData(
-    metadata: AvatarMetadata,
+// Setup the smooth interpolation render loop
+function setupRenderLoop() {
+    if (renderObserver) {
+        props.scene.unregisterBeforeRender(renderObserver);
+    }
+
+    renderObserver = () => {
+        if (!avatarNode.value || !isModelLoaded.value) return;
+
+        // Smooth avatar position with adaptive factor
+        const posFactor = adaptiveSmoothFactor(
+            avatarNode.value.position,
+            targetPosition.value,
+            AVATAR_SMOOTH_FACTOR,
+        );
+        avatarNode.value.position = Vector3.Lerp(
+            avatarNode.value.position,
+            targetPosition.value,
+            posFactor,
+        );
+
+        // Smooth avatar rotation
+        if (avatarNode.value.rotationQuaternion && targetRotation.value) {
+            avatarNode.value.rotationQuaternion = Quaternion.Slerp(
+                avatarNode.value.rotationQuaternion,
+                targetRotation.value,
+                AVATAR_SMOOTH_FACTOR,
+            );
+        }
+
+        // Smooth bone transforms
+        if (avatarSkeleton.value && targetBoneTransforms.value.size > 0) {
+            for (const bone of avatarSkeleton.value.bones) {
+                const targetTransform = targetBoneTransforms.value.get(
+                    bone.name,
+                );
+
+                if (targetTransform) {
+                    // Get current bone transforms
+                    const currentPos = bone.getPosition(Space.LOCAL);
+                    const currentRot =
+                        bone.getRotationQuaternion(Space.LOCAL) ||
+                        Quaternion.Identity();
+                    const currentScale = bone.getScale();
+
+                    // Lerp to target
+                    const smoothedPos = Vector3.Lerp(
+                        currentPos,
+                        targetTransform.position,
+                        BONE_SMOOTH_FACTOR,
+                    );
+                    const smoothedRot = Quaternion.Slerp(
+                        currentRot,
+                        targetTransform.rotation,
+                        BONE_SMOOTH_FACTOR,
+                    );
+                    const smoothedScale = Vector3.Lerp(
+                        currentScale,
+                        targetTransform.scale,
+                        BONE_SMOOTH_FACTOR,
+                    );
+
+                    // Apply smoothed transforms
+                    bone.setPosition(smoothedPos, Space.LOCAL);
+                    bone.setRotationQuaternion(smoothedRot, Space.LOCAL);
+                    bone.setScale(smoothedScale);
+                    bone.markAsDirty();
+                }
+            }
+
+            // Update skeleton
+            avatarSkeleton.value.computeAbsoluteMatrices(true);
+
+            // Force mesh updates
+            for (const mesh of meshes.value) {
+                if (mesh.skeleton === avatarSkeleton.value) {
+                    mesh.computeWorldMatrix(true);
+                }
+            }
+        }
+    };
+
+    props.scene.registerBeforeRender(renderObserver);
+}
+
+// Update target transforms (called when new data arrives)
+function updateTargetTransforms(
+    position: AvatarPositionData | null,
+    rotation: AvatarRotationData | null,
     joints: Map<string, AvatarJointMetadata>,
 ) {
     if (!avatarNode.value || !isModelLoaded.value) {
         return;
     }
 
-    // Apply position and rotation
-    if (metadata.position) {
-        const pos = objToVector(metadata.position);
-        avatarNode.value.position = pos;
+    // Update target position and rotation
+    if (position) {
+        targetPosition.value = objToVector(position);
     }
 
-    if (metadata.rotation) {
-        const rot = objToQuat(metadata.rotation);
-        avatarNode.value.rotationQuaternion = rot;
+    if (rotation) {
+        targetRotation.value = objToQuat(rotation);
     }
 
-    // Apply joint transforms if available (now from individual metadata entries)
+    // Update target bone transforms
     if (joints.size > 0 && avatarSkeleton.value) {
         const bones = avatarSkeleton.value.bones;
 
-        // Debug: Check if skeleton is properly bound to meshes
-        const skinnedMeshCount = meshes.value.filter(
-            (m) => m.skeleton === avatarSkeleton.value,
-        ).length;
-        if (skinnedMeshCount === 0) {
-            console.warn(
-                `No meshes are bound to the skeleton for session ${props.sessionId}!`,
-            );
-        }
-
-        let bonesUpdated = 0;
-        let bonesReset = 0;
-
-        // Update bones with data
         for (const bone of bones) {
             // Try exact match first
             let jointMetadata = joints.get(bone.name);
 
-            // If no exact match, try to find a matching joint by checking if bone name contains joint name
+            // If no exact match, try to find a matching joint
             if (!jointMetadata) {
                 for (const [jointName, metadata] of joints) {
                     if (
@@ -303,21 +439,16 @@ function applyAvatarData(
             }
 
             if (jointMetadata) {
-                // Bone has new data - apply it
-                const bonePos = objToVector(jointMetadata.position);
-                const boneRot = objToQuat(jointMetadata.rotation);
-                const boneScale = jointMetadata.scale
-                    ? objToVector(jointMetadata.scale)
-                    : Vector3.One();
-
-                // Set transforms in LOCAL space
-                bone.setPosition(bonePos, Space.LOCAL);
-                bone.setRotationQuaternion(boneRot, Space.LOCAL);
-                bone.setScale(boneScale);
-                bonesUpdated++;
+                // Store target transforms for this bone
+                targetBoneTransforms.value.set(bone.name, {
+                    position: objToVector(jointMetadata.position),
+                    rotation: objToQuat(jointMetadata.rotation),
+                    scale: jointMetadata.scale
+                        ? objToVector(jointMetadata.scale)
+                        : Vector3.One(),
+                });
             } else {
-                // Bone has no data - reset to bind pose to prevent T-pose artifacts
-                // This is crucial to prevent bones from staying in previous positions
+                // Reset to bind pose
                 if (bone.getBindMatrix) {
                     const bindMatrix = bone.getBindMatrix();
                     const bindPos = new Vector3();
@@ -325,366 +456,83 @@ function applyAvatarData(
                     const bindScale = new Vector3();
                     bindMatrix.decompose(bindScale, bindRot, bindPos);
 
-                    bone.setPosition(bindPos, Space.LOCAL);
-                    bone.setRotationQuaternion(bindRot, Space.LOCAL);
-                    bone.setScale(bindScale);
+                    targetBoneTransforms.value.set(bone.name, {
+                        position: bindPos,
+                        rotation: bindRot,
+                        scale: bindScale,
+                    });
                 } else {
-                    // Fallback: reset to identity transforms
-                    bone.setPosition(Vector3.Zero(), Space.LOCAL);
-                    bone.setRotationQuaternion(
-                        Quaternion.Identity(),
-                        Space.LOCAL,
-                    );
-                    bone.setScale(Vector3.One());
-                }
-                bonesReset++;
-            }
-
-            // Mark the bone as updated
-            bone.markAsDirty();
-        }
-
-        // Force skeleton update to ensure proper hierarchy computation
-        // Use 'true' to force computation even if bones haven't changed
-        avatarSkeleton.value.computeAbsoluteMatrices(true);
-
-        // Force mesh updates for all skinned meshes
-        for (const mesh of meshes.value) {
-            if (mesh.skeleton === avatarSkeleton.value) {
-                // Force the mesh to update its world matrix
-                mesh.computeWorldMatrix(true);
-
-                // If the mesh has a method to update from skeleton, use it
-                if (
-                    "applySkeleton" in mesh &&
-                    typeof mesh.applySkeleton === "function"
-                ) {
-                    // mesh.applySkeleton(avatarSkeleton.value);
+                    // Fallback: reset to identity
+                    targetBoneTransforms.value.set(bone.name, {
+                        position: Vector3.Zero(),
+                        rotation: Quaternion.Identity(),
+                        scale: Vector3.One(),
+                    });
                 }
             }
         }
     }
 }
 
-// Polling intervals
-let dataPollInterval: number | null = null;
-let jointPollInterval: number | null = null;
-let isPollingData = false; // Flag to prevent overlapping general data requests
-let isPollingJoints = false; // Flag to prevent overlapping joint requests
-let debugInterval: number | null = null;
+// Ingest a raw avatar_frame message, validate, and update targets
+function ingestAvatarFrame(raw: unknown) {
+    const parsed = AvatarFrameMessageSchema.safeParse(raw);
+    if (!parsed.success) return;
+    const frame: AvatarFrameMessage = parsed.data;
 
-// Poll for general avatar data from the server (position, rotation, etc.)
-async function pollAvatarData() {
-    if (
-        !vircadiaWorld ||
-        vircadiaWorld.connectionInfo.value.status !== "connected"
-    ) {
-        return;
+    if (frame.position) {
+        currentPositionData.value = frame.position;
     }
-
-    if (isPollingData) {
-        console.debug(
-            `Skipping data poll for ${props.sessionId} - previous request still in progress`,
-        );
-        return;
+    if (frame.rotation) {
+        currentRotationData.value = frame.rotation;
     }
-
-    isPollingData = true;
-
-    try {
-        const entityName = `avatar:${props.sessionId}`;
-
-        // First check if entity exists
-        const entityResult =
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
-                parameters: [entityName],
-                timeoutMs: 20000, // Increased timeout to 20 seconds
+    // Convert joints record to Map<string, AvatarJointMetadata>-like entries
+    if (frame.joints && Object.keys(frame.joints).length > 0) {
+        const m = new Map<string, AvatarJointMetadata>();
+        for (const key of Object.keys(frame.joints)) {
+            const j = frame.joints[key];
+            m.set(key, {
+                type: "avatarJoint",
+                sessionId: props.sessionId,
+                jointName: key,
+                position: j.position,
+                rotation: j.rotation,
+                scale: j.scale || { x: 1, y: 1, z: 1 },
             });
-
-        if (
-            Array.isArray(entityResult.result) &&
-            entityResult.result.length > 0
-        ) {
-            // Fetch all metadata for this entity
-            const metadata = await retrieveEntityMetadata(entityName);
-
-            if (metadata && metadata.size > 0) {
-                try {
-                    // Convert Map to object for validation
-                    const metaObj = Object.fromEntries(metadata);
-
-                    // Parse and validate metadata using the schema
-                    const avatarMetadata = AvatarMetadataSchema.parse(metaObj);
-
-                    appStore.setOtherAvatarMetadata(
-                        props.sessionId,
-                        avatarMetadata,
-                    );
-
-                    // Update avatar position if model is loaded
-                    if (avatarNode.value && isModelLoaded.value) {
-                        // Apply only position and rotation data (joints will be handled separately)
-                        applyAvatarData(avatarMetadata, new Map());
-                    }
-
-                    // Store the last received metadata for debugging
-                    lastReceivedMetadata.value = avatarMetadata;
-                } catch (parseError) {
-                    console.warn(
-                        `Failed to parse avatar metadata for session ${props.sessionId}:`,
-                        parseError,
-                    );
-                }
-            }
-        } else {
-            // Avatar entity not found - skip this poll cycle
-            // Avatar lifecycle (add/remove) is managed by App.vue
-            console.debug(
-                `Avatar entity not found for session ${props.sessionId}, skipping update`,
-            );
-            // Reset the last poll timestamp when avatar is not found
-            lastPollTimestamp.value = null;
-            return;
         }
-    } catch (error) {
-        // Handle timeout errors gracefully
-        if (error instanceof Error && error.message.includes("timeout")) {
-            console.debug(
-                `Avatar data query timed out for session ${props.sessionId}, will retry`,
-            );
-        } else {
-            console.error(
-                `Error polling avatar data for session ${props.sessionId}:`,
-                error,
-            );
-        }
-    } finally {
-        isPollingData = false;
-    }
-}
-
-// Poll for joint data from the server (skeleton bones)
-async function pollJointData() {
-    if (
-        !vircadiaWorld ||
-        vircadiaWorld.connectionInfo.value.status !== "connected"
-    ) {
-        return;
+        currentJointData.value = m;
     }
 
-    if (isPollingJoints) {
-        console.debug(
-            `Skipping joint poll for ${props.sessionId} - previous request still in progress`,
-        );
-        return;
-    }
-
-    isPollingJoints = true;
-
-    try {
-        const entityName = `avatar:${props.sessionId}`;
-
-        // First check if entity exists
-        const entityResult =
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
-                parameters: [entityName],
-                timeoutMs: 20000, // Increased timeout to 20 seconds
-            });
-
-        if (
-            Array.isArray(entityResult.result) &&
-            entityResult.result.length > 0
-        ) {
-            // Fetch joint metadata - only fetch updates since last poll
-            let jointQuery: string;
-            let jointParameters: unknown[];
-
-            if (lastPollTimestamp.value) {
-                // Incremental update - only fetch joints updated since last poll
-                jointQuery = `
-                    SELECT metadata__key, metadata__value, general__updated_at
-                    FROM entity.entity_metadata 
-                    WHERE general__entity_name = $1 
-                    AND metadata__key LIKE 'joint:%'
-                    AND metadata__value->>'type' = 'avatarJoint'
-                    AND general__updated_at > $2
-                    ORDER BY general__updated_at DESC`;
-                jointParameters = [
-                    entityName,
-                    lastPollTimestamp.value.toISOString(),
-                ];
-            } else {
-                // Initial fetch - get all joints
-                jointQuery = `
-                    SELECT metadata__key, metadata__value, general__updated_at
-                    FROM entity.entity_metadata 
-                    WHERE general__entity_name = $1 
-                    AND metadata__key LIKE 'joint:%'
-                    AND metadata__value->>'type' = 'avatarJoint'
-                    ORDER BY general__updated_at DESC`;
-                jointParameters = [entityName];
-            }
-
-            const jointResult =
-                await vircadiaWorld.client.Utilities.Connection.query({
-                    query: jointQuery,
-                    parameters: jointParameters,
-                });
-
-            // If this is an incremental update, start with existing joints
-            const joints = lastPollTimestamp.value
-                ? new Map(lastReceivedJoints.value)
-                : new Map<string, AvatarJointMetadata>();
-
-            let newestUpdateTime: Date | null = lastPollTimestamp.value;
-
-            if (Array.isArray(jointResult.result)) {
-                for (const row of jointResult.result) {
-                    try {
-                        // Parse each joint metadata
-                        const jointData = AvatarJointMetadataSchema.parse(
-                            row.metadata__value,
-                        );
-                        joints.set(jointData.jointName, jointData);
-
-                        // Track the newest update time
-                        if (row.general__updated_at) {
-                            const updateTime = new Date(
-                                row.general__updated_at,
-                            );
-                            if (
-                                !newestUpdateTime ||
-                                updateTime > newestUpdateTime
-                            ) {
-                                newestUpdateTime = updateTime;
-                            }
-                        }
-                    } catch (parseError) {
-                        console.warn(
-                            `Failed to parse joint metadata for ${row.metadata__key}:`,
-                            parseError,
-                        );
-                    }
-                }
-
-                // Log incremental update info for debugging
-                if (lastPollTimestamp.value && jointResult.result.length > 0) {
-                    console.debug(
-                        `Incremental joint update for ${props.sessionId}: ${jointResult.result.length} joints updated since ${lastPollTimestamp.value.toISOString()}`,
-                    );
-                }
-            }
-
-            // Update the last poll timestamp
-            if (newestUpdateTime) {
-                lastPollTimestamp.value = newestUpdateTime;
-            } else if (!lastPollTimestamp.value) {
-                // If no joints were found and this is the first poll, set to current time
-                lastPollTimestamp.value = new Date();
-            }
-
-            // Update avatar joints if model is loaded
-            if (
-                avatarNode.value &&
-                isModelLoaded.value &&
-                lastReceivedMetadata.value
-            ) {
-                applyAvatarData(lastReceivedMetadata.value, joints);
-            }
-
-            // Store the last received joints for debugging
-            lastReceivedJoints.value = joints;
-        } else {
-            // Avatar entity not found - skip this poll cycle
-            console.debug(
-                `Avatar entity not found for joint poll ${props.sessionId}, skipping update`,
-            );
-            // Reset the last poll timestamp when avatar is not found
-            lastPollTimestamp.value = null;
-            return;
-        }
-    } catch (error) {
-        // Handle timeout errors gracefully
-        if (error instanceof Error && error.message.includes("timeout")) {
-            console.debug(
-                `Joint data query timed out for session ${props.sessionId}, will retry`,
-            );
-        } else {
-            console.error(
-                `Error polling joint data for session ${props.sessionId}:`,
-                error,
-            );
-        }
-    } finally {
-        isPollingJoints = false;
-    }
-}
-
-// Start polling when connected
-function startPolling() {
-    if (dataPollInterval || jointPollInterval) {
-        return;
-    }
-
-    // Initial poll to get data immediately
-    pollAvatarData();
-    pollJointData();
-
-    // Poll general avatar data at configured interval (position, rotation, etc.)
-    dataPollInterval = setInterval(
-        pollAvatarData,
-        appStore.pollingIntervals.otherAvatarData,
+    updateTargetTransforms(
+        currentPositionData.value,
+        currentRotationData.value,
+        currentJointData.value,
     );
-
-    // Poll joint data at a separate, less frequent interval
-    jointPollInterval = setInterval(
-        pollJointData,
-        appStore.pollingIntervals.otherAvatarJointData,
-    );
-
-    console.debug(
-        `Started split polling for avatar ${props.sessionId}: data every ${appStore.pollingIntervals.otherAvatarData}ms, joints every ${appStore.pollingIntervals.otherAvatarJointData}ms`,
-    );
-
-    // WebRTC connection is now handled by periodic discovery in useBabylonWebRTC
 }
 
-// Stop polling
-function stopPolling() {
-    if (dataPollInterval) {
-        clearInterval(dataPollInterval);
-        dataPollInterval = null;
-    }
-
-    if (jointPollInterval) {
-        clearInterval(jointPollInterval);
-        jointPollInterval = null;
-    }
-}
-
-// Watch for connection changes
-watch(
-    () => vircadiaWorld.connectionInfo.value.status,
-    (status) => {
-        if (status === "connected") {
-            startPolling();
-        } else {
-            stopPolling();
-        }
-    },
-    { immediate: true },
-);
-
-// Audio playback is now handled by the BabylonWebRTC component
+// Debug interval
+let debugInterval: ReturnType<typeof setInterval> | null = null;
 
 // Start debug logging
-onMounted(() => {
+onMounted(async () => {
     // Load the avatar model when component is mounted
-    loadAvatarModel();
+    await loadAvatarModel();
 
-    // Audio playback is now handled by the BabylonWebRTC component
+    // Apply any existing data if model loaded successfully
+    if (
+        isModelLoaded.value &&
+        props.avatarData &&
+        props.positionData &&
+        props.rotationData
+    ) {
+        currentPositionData.value = props.positionData;
+        currentRotationData.value = props.rotationData;
+        updateTargetTransforms(
+            currentPositionData.value,
+            currentRotationData.value,
+            props.jointData || new Map(),
+        );
+    }
 
     // Expose debug data function for overlay
     (
@@ -710,7 +558,7 @@ onMounted(() => {
             }
         > = {};
 
-        // Only collect key joints: Hips, Spine bones, and leg bones
+        // Only collect key joints
         const keyJoints = ["Hips", "Spine", "LeftUpLeg", "RightUpLeg"];
 
         for (const jointName of keyJoints) {
@@ -733,16 +581,14 @@ onMounted(() => {
                 };
 
                 // Last received values from server
-                if (lastReceivedJoints.value.size > 0) {
-                    // Try exact match first
-                    let jointMetadata = lastReceivedJoints.value.get(bone.name);
+                if (currentJointData.value.size > 0) {
+                    let jointMetadata = currentJointData.value.get(bone.name);
 
-                    // If no exact match, try to find a matching joint by checking if bone name contains joint name
                     if (!jointMetadata) {
                         for (const [
                             jointName,
                             metadata,
-                        ] of lastReceivedJoints.value) {
+                        ] of currentJointData.value) {
                             if (
                                 bone.name.includes(jointName) ||
                                 jointName.includes(bone.name)
@@ -767,11 +613,14 @@ onMounted(() => {
         return {
             sessionId: props.sessionId,
             boneCount: avatarSkeleton.value.bones.length,
+            smoothingFactor: AVATAR_SMOOTH_FACTOR,
+            boneSmoothing: BONE_SMOOTH_FACTOR,
             currentEngineState,
             lastReceivedValues,
-            lastReceivedTimestamp: lastReceivedMetadata.value
-                ? new Date().toISOString()
-                : null,
+            lastReceivedTimestamp:
+                currentPositionData.value && currentRotationData.value
+                    ? new Date().toISOString()
+                    : null,
         };
     };
 
@@ -822,31 +671,28 @@ onMounted(() => {
             console.log("[OTHER_AVATAR]", JSON.stringify(debugData));
         }
     }, 1000); // Log every second
-
-    if (vircadiaWorld.connectionInfo.value.status === "connected") {
-        startPolling();
-    }
 });
 
 onUnmounted(() => {
     emit("dispose");
-    stopPolling();
 
     if (debugInterval) {
         clearInterval(debugInterval);
     }
 
-    // Remove metadata from store
-    appStore.removeOtherAvatarMetadata(props.sessionId);
+    // Unregister render loop
+    if (renderObserver) {
+        props.scene.unregisterBeforeRender(renderObserver);
+        renderObserver = null;
+    }
+
+    emit("avatar-removed", { sessionId: props.sessionId });
 
     // Clean up avatar node and meshes
     if (avatarNode.value) {
         avatarNode.value.dispose();
         avatarNode.value = null;
     }
-
-    // Clean up asset
-    asset.cleanup();
 
     isModelLoaded.value = false;
 });
@@ -855,5 +701,6 @@ defineExpose({
     sessionId: props.sessionId,
     isModelLoaded,
     avatarNode,
+    ingestAvatarFrame,
 });
-</script> 
+</script>

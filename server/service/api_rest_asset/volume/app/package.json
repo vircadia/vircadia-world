@@ -1,0 +1,22 @@
+{
+    "name": "world-api-rest-asset-manager",
+    "version": "1.0.0",
+    "description": "Vircadia World API REST Asset Manager",
+    "main": "dist/world.api.rest.asset.manager.js",
+    "dependencies": {
+        "jsonwebtoken": "catalog:",
+        "postgres": "catalog:",
+        "zod": "catalog:"
+    },
+    "devDependencies": {
+        "@types/jsonwebtoken": "catalog:types",
+        "@types/bun": "catalog:types",
+        "@types/node": "catalog:types"
+    },
+    "scripts": {
+        "build": "bun build world.api.rest.asset.manager.ts --target bun --outfile ./dist/world.api.rest.asset.manager.js",
+        "start": "bun ./dist/world.api.rest.asset.manager.js",
+        "deploy": "bun run build && bun run start",
+        "dev": "bun --watch ./world.api.rest.asset.manager.ts"
+    }
+}

@@ -1,0 +1,1502 @@
+// =============================================================================
+// ============================== IMPORTS, TYPES, AND INTERFACES ==============================
+// =============================================================================
+
+import { randomUUID } from "node:crypto";
+import {
+    type AccountInfo,
+    type AuthenticationResult,
+    type AuthorizationCodeRequest,
+    type AuthorizationUrlRequest,
+    ConfidentialClientApplication,
+    type Configuration,
+    CryptoProvider,
+} from "@azure/msal-node";
+import { sql, type SQL } from "bun";
+import { sign } from "jsonwebtoken";
+import { serverConfiguration } from "../../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
+import { BunLogModule } from "../../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
+import { Auth } from "../../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+
+// =================================================================================
+// ================ INTERFACES & TYPES ==================
+// =================================================================================
+
+export interface I_AzureADConfig {
+    clientId: string;
+    clientSecret: string;
+    tenantId: string;
+    redirectUris: string[];
+    scopes: string[];
+    jwtSecret: string;
+    endSessionUrl?: string;
+    discoveryUrl?: string;
+    revocationUrl?: string;
+    deviceAuthorizationUrl?: string;
+}
+
+export interface I_OAuthState {
+    provider: string;
+    action: "login" | "link";
+    sessionId?: string;
+    agentId?: string;
+    redirectUrl?: string;
+}
+
+export interface I_TokenResponse {
+    accessToken: string;
+    idToken?: string;
+    refreshToken?: string;
+    expiresOn?: Date;
+    account?: AccountInfo;
+}
+
+export interface I_UserInfo {
+    id: string;
+    email: string;
+    displayName: string;
+    givenName?: string;
+    surname?: string;
+    userPrincipalName?: string;
+}
+
+// =================================================================================
+// ================ AZURE AD AUTH SERVICE ==================
+// =================================================================================
+
+const LOG_PREFIX = "Azure Entra ID Auth Service";
+
+const PROVIDER_NAME = "azure";
+const PROVIDER_DISPLAY_NAME = "Azure Entra ID";
+const SESSION_MAX_PER_AGENT = 3;
+const SESSION_DURATION_JWT_STRING = "7d";
+const SESSION_DURATION_MS = 604800000;
+const SESSION_MAX_AGE_MS = 604800000;
+const SESSION_INACTIVE_EXPIRY_MS = 7200000;
+
+export class AzureADAuthService {
+    private msalClient: ConfidentialClientApplication;
+    private cryptoProvider: CryptoProvider;
+    private config: I_AzureADConfig;
+    private db: SQL;
+
+    constructor(config: I_AzureADConfig, db: SQL) {
+        this.config = config;
+        this.db = db;
+        this.cryptoProvider = new CryptoProvider();
+
+        const msalConfig: Configuration = {
+            auth: {
+                clientId: config.clientId,
+                authority: `https://login.microsoftonline.com/${config.tenantId}`,
+                clientSecret: config.clientSecret,
+            },
+            system: {
+                loggerOptions: {
+                    loggerCallback: (_logLevel, message, containsPii) => {
+                        if (!containsPii) {
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message: `MSAL: ${message}`,
+                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                suppress:
+                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                type: "debug",
+                            });
+                        }
+                    },
+                    piiLoggingEnabled: false,
+                    logLevel: serverConfiguration.VRCA_SERVER_DEBUG ? 3 : 0, // 3 = Verbose, 0 = Error
+                },
+            },
+        };
+
+        this.msalClient = new ConfidentialClientApplication(msalConfig);
+    }
+
+    /**
+     * Build an OIDC end-session (logout) URL if configured
+     */
+    public getEndSessionUrl(args?: {
+        postLogoutRedirectUri?: string;
+        idTokenHint?: string;
+    }): string | null {
+        const base = this.config.endSessionUrl;
+        if (!base) return null;
+        const url = new URL(base);
+        const postRedirect =
+            args?.postLogoutRedirectUri ?? this.config.redirectUris[0];
+        if (postRedirect)
+            url.searchParams.set("post_logout_redirect_uri", postRedirect);
+        if (args?.idTokenHint)
+            url.searchParams.set("id_token_hint", args.idTokenHint);
+        return url.toString();
+    }
+
+    /**
+     * Handle OAuth login/link callback end-to-end
+     */
+    async handleLoginCallback(args: {
+        code: string;
+        state: I_OAuthState | string;
+    }): Promise<{
+        token: string;
+        agentId: string;
+        sessionId: string;
+        email: string;
+        displayName: string;
+        username: string;
+    }> {
+        const { code } = args;
+
+        // Determine raw state param and parsed state object
+        let stateParam: string;
+        let stateObj: I_OAuthState;
+        if (typeof args.state === "string") {
+            stateParam = args.state;
+            stateObj = parseOAuthState(stateParam);
+        } else {
+            stateObj = args.state;
+            // Reconstruct the original base64url state string for PKCE cache lookup
+            stateParam = Buffer.from(JSON.stringify(stateObj)).toString(
+                "base64url",
+            );
+        }
+
+        // Exchange code for tokens using PKCE verifier tied to the raw state string
+        const tokenResponse = await this.exchangeCodeForTokens(
+            code,
+            stateParam,
+        );
+
+        // Fetch user info from Graph
+        const userInfo = await this.getUserInfo(tokenResponse.accessToken);
+
+        if (stateObj.action === "login") {
+            const result = await this.createOrUpdateUser(
+                userInfo,
+                tokenResponse,
+            );
+            return {
+                token: result.jwt,
+                agentId: result.agentId,
+                sessionId: result.sessionId,
+                email: result.email,
+                displayName: result.displayName,
+                username: result.username,
+            };
+        }
+
+        if (stateObj.action === "link" && stateObj.agentId) {
+            await this.linkProvider(stateObj.agentId, userInfo, tokenResponse);
+
+            // Retrieve profile details to populate response
+            const [profile] = await this.db<
+                [
+                    {
+                        profile__username: string;
+                        auth__email: string;
+                        azure_display_name: string | null;
+                    },
+                ]
+            >`
+                SELECT 
+                    p.profile__username, 
+                    p.auth__email,
+                    ap.auth__metadata->>'displayName' as azure_display_name
+                FROM auth.agent_profiles p
+                LEFT JOIN auth.agent_auth_providers ap 
+                    ON p.general__agent_profile_id = ap.auth__agent_id 
+                    AND ap.auth__provider_name = 'azure'
+                WHERE p.general__agent_profile_id = ${stateObj.agentId}::UUID
+            `;
+
+            const email = profile?.auth__email || userInfo.email;
+            const displayName =
+                profile?.azure_display_name ||
+                userInfo.displayName ||
+                profile?.profile__username ||
+                "";
+            const username =
+                profile?.profile__username ||
+                (email ? email.split("@")[0] : "");
+
+            return {
+                token: "",
+                agentId: stateObj.agentId,
+                sessionId: stateObj.sessionId || "",
+                email,
+                displayName,
+                username,
+            };
+        }
+
+        throw new Error("Invalid state action");
+    }
+
+    /**
+     * Get the authorization URL for OAuth flow
+     */
+    async getAuthorizationUrl(state: I_OAuthState): Promise<string> {
+        try {
+            const stateParam = Buffer.from(JSON.stringify(state)).toString(
+                "base64url",
+            );
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Generating authorization URL",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: {
+                    state,
+                    stateParam,
+                },
+            });
+
+            // Generate PKCE codes
+            const { verifier, challenge } =
+                await this.cryptoProvider.generatePkceCodes();
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "PKCE codes generated",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: {
+                    verifierLength: verifier?.length,
+                    challengeLength: challenge?.length,
+                },
+            });
+
+            // Resolve redirect URI for this request
+            const dynamicRedirectUri = (() => {
+                try {
+                    if (state.redirectUrl) {
+                        const u = new URL(state.redirectUrl);
+                        return `${u.protocol}//${u.host}`;
+                    }
+                } catch {}
+                return this.config.redirectUris[0];
+            })();
+
+            // // Try ensure the redirect URI is registered in Azure if it's new
+            // try {
+            //     if (
+            //         dynamicRedirectUri &&
+            //         (!this.config.redirectUris ||
+            //             !this.config.redirectUris.includes(dynamicRedirectUri))
+            //     ) {
+            //         await this.ensureRedirectUriRegistered(dynamicRedirectUri);
+            //         this.config.redirectUris = Array.from(
+            //             new Set([
+            //                 ...(this.config.redirectUris || []),
+            //                 dynamicRedirectUri,
+            //             ]),
+            //         );
+            //     }
+            // } catch (e) {
+            //     BunLogModule({
+            //         prefix: LOG_PREFIX,
+            //         message:
+            //             "Failed to ensure redirect URI is registered (continuing)",
+            //         error: e,
+            //         debug: true,
+            //         suppress: false,
+            //         type: "warning",
+            //     });
+            // }
+
+            // Store the verifier in cache for later use during token exchange
+            const cacheKey = `pkce_verifier_${stateParam}`;
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Storing PKCE verifier in cache",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: {
+                    cacheKey,
+                    expiresIn: "10 minutes",
+                },
+            });
+
+            // Note: In production, you'd want to store this in a secure cache like Redis
+            // For now, we'll store it in the database with expiry
+            try {
+                await this.db`
+                    INSERT INTO auth.oauth_state_cache (
+                        cache_key,
+                        cache_value,
+                        expires_at
+                    ) VALUES (
+                        ${cacheKey},
+                        ${JSON.stringify({ verifier, redirectUri: dynamicRedirectUri })},
+                        NOW() + INTERVAL '10 minutes'
+                    )
+                    ON CONFLICT (cache_key) DO UPDATE
+                    SET cache_value = EXCLUDED.cache_value,
+                        expires_at = EXCLUDED.expires_at
+                `;
+
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "PKCE verifier stored successfully",
+                    debug: true,
+                    suppress: false,
+                    type: "success",
+                    data: {
+                        cacheKey,
+                    },
+                });
+
+                // Verify it was stored
+                const verifyStore = await this.db`
+                    SELECT cache_key, expires_at::text as expires_at
+                    FROM auth.oauth_state_cache
+                    WHERE cache_key = ${cacheKey}
+                `;
+
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "PKCE verifier storage verification",
+                    debug: true,
+                    suppress: false,
+                    type: "debug",
+                    data: {
+                        stored: verifyStore.length > 0,
+                        entry: verifyStore[0],
+                    },
+                });
+            } catch (dbError) {
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "Failed to store PKCE verifier",
+                    debug: true,
+                    suppress: false,
+                    type: "error",
+                    data: {
+                        error:
+                            dbError instanceof Error
+                                ? dbError.message
+                                : String(dbError),
+                        stack:
+                            dbError instanceof Error
+                                ? dbError.stack
+                                : undefined,
+                        cacheKey,
+                    },
+                });
+                throw new Error(
+                    `Failed to store PKCE verifier: ${dbError instanceof Error ? dbError.message : String(dbError)}`,
+                );
+            }
+
+            const authCodeUrlParameters: AuthorizationUrlRequest = {
+                scopes: this.config.scopes,
+                redirectUri: dynamicRedirectUri || this.config.redirectUris[0],
+                state: stateParam,
+                codeChallenge: challenge,
+                codeChallengeMethod: "S256",
+                prompt: "select_account", // Force account selection
+            };
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Creating auth URL with parameters",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: {
+                    scopes: authCodeUrlParameters.scopes,
+                    redirectUri: authCodeUrlParameters.redirectUri,
+                    hasState: !!authCodeUrlParameters.state,
+                    hasChallenge: !!authCodeUrlParameters.codeChallenge,
+                    codeChallengeMethod:
+                        authCodeUrlParameters.codeChallengeMethod,
+                },
+            });
+
+            const authUrl = await this.msalClient.getAuthCodeUrl(
+                authCodeUrlParameters,
+            );
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Generated authorization URL",
+                debug: true, // Force debug for troubleshooting
+                suppress: false,
+                type: "success",
+                data: {
+                    state,
+                    authUrl,
+                    authUrlLength: authUrl?.length,
+                    authUrlType: typeof authUrl,
+                },
+            });
+
+            return authUrl;
+        } catch (error) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Failed to generate authorization URL",
+                error,
+                debug: true, // Force debug
+                suppress: false,
+                type: "error",
+                data: {
+                    errorMessage:
+                        error instanceof Error ? error.message : String(error),
+                    errorName: error instanceof Error ? error.name : undefined,
+                    stack: error instanceof Error ? error.stack : undefined,
+                },
+            });
+            throw error;
+        }
+    }
+
+    /**
+     * Exchange authorization code for tokens
+     */
+    async exchangeCodeForTokens(
+        code: string,
+        state: string,
+    ): Promise<I_TokenResponse> {
+        try {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Starting token exchange",
+                debug: true, // Force debug for troubleshooting
+                suppress: false,
+                type: "debug",
+                data: {
+                    codeLength: code?.length,
+                    state,
+                    hasCode: !!code,
+                    hasState: !!state,
+                },
+            });
+
+            // Retrieve the PKCE verifier from cache
+            const cacheKey = `pkce_verifier_${state}`;
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Looking up PKCE verifier",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: { cacheKey },
+            });
+
+            let cacheResult: { cache_value: string } | undefined;
+            try {
+                const results = await this.db<[{ cache_value: string }]>`
+                    SELECT cache_value FROM auth.oauth_state_cache
+                    WHERE cache_key = ${cacheKey}
+                      AND expires_at > NOW()
+                `;
+
+                cacheResult = results?.[0];
+
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "PKCE verifier query result",
+                    debug: true,
+                    suppress: false,
+                    type: "debug",
+                    data: {
+                        found: !!cacheResult,
+                        hasValue: !!cacheResult?.cache_value,
+                        cacheKey,
+                    },
+                });
+
+                // Also check for expired entries for debugging
+                const expiredCheck = await this.db<
+                    [{ count: number; min_expires_at: string }]
+                >`
+                    SELECT COUNT(*) as count, MIN(expires_at)::text as min_expires_at
+                    FROM auth.oauth_state_cache
+                    WHERE cache_key = ${cacheKey}
+                      AND expires_at <= NOW()
+                `;
+
+                if (expiredCheck?.[0]?.count > 0) {
+                    BunLogModule({
+                        prefix: LOG_PREFIX,
+                        message: "Found expired PKCE verifier entries",
+                        debug: true,
+                        suppress: false,
+                        type: "warning",
+                        data: {
+                            expiredCount: expiredCheck[0].count,
+                            oldestExpiry: expiredCheck[0].min_expires_at,
+                            cacheKey,
+                        },
+                    });
+                }
+            } catch (dbError) {
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "Database error while retrieving PKCE verifier",
+                    debug: true,
+                    suppress: false,
+                    type: "error",
+                    data: {
+                        error:
+                            dbError instanceof Error
+                                ? dbError.message
+                                : String(dbError),
+                        stack:
+                            dbError instanceof Error
+                                ? dbError.stack
+                                : undefined,
+                        cacheKey,
+                    },
+                });
+                throw new Error(
+                    `Failed to retrieve PKCE verifier: ${dbError instanceof Error ? dbError.message : String(dbError)}`,
+                );
+            }
+
+            if (!cacheResult?.cache_value) {
+                // Check if any entries exist for debugging
+                const allEntries = await this.db<
+                    [
+                        {
+                            cache_key: string;
+                            expires_at: string;
+                            created_at: string;
+                        },
+                    ]
+                >`
+                    SELECT cache_key, expires_at::text, created_at::text
+                    FROM auth.oauth_state_cache
+                    ORDER BY created_at DESC
+                    LIMIT 10
+                `;
+
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message:
+                        "PKCE verifier not found in cache - showing recent entries",
+                    debug: true,
+                    suppress: false,
+                    type: "error",
+                    data: {
+                        cacheKey,
+                        recentEntries: allEntries,
+                        totalEntries: allEntries.length,
+                    },
+                });
+                throw new Error("PKCE verifier not found or expired");
+            }
+
+            let verifier: string = cacheResult.cache_value;
+            let redirectUriForToken: string | undefined;
+            try {
+                const maybe = JSON.parse(cacheResult.cache_value) as {
+                    verifier?: string;
+                    redirectUri?: string;
+                };
+                if (maybe && typeof maybe === "object" && maybe.verifier) {
+                    verifier = String(maybe.verifier);
+                    if (
+                        maybe.redirectUri &&
+                        typeof maybe.redirectUri === "string"
+                    ) {
+                        redirectUriForToken = maybe.redirectUri;
+                    }
+                }
+            } catch {}
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "PKCE verifier retrieved successfully",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: {
+                    verifierLength: verifier?.length,
+                    cacheKey,
+                },
+            });
+
+            // Clean up the cache entry
+            try {
+                await this.db`
+                    DELETE FROM auth.oauth_state_cache
+                    WHERE cache_key = ${cacheKey}
+                `;
+
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "PKCE verifier cache entry cleaned up",
+                    debug: true,
+                    suppress: false,
+                    type: "debug",
+                    data: { cacheKey },
+                });
+            } catch (deleteError) {
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "Failed to clean up PKCE verifier cache entry",
+                    debug: true,
+                    suppress: false,
+                    type: "warning",
+                    data: {
+                        error:
+                            deleteError instanceof Error
+                                ? deleteError.message
+                                : String(deleteError),
+                        cacheKey,
+                    },
+                });
+                // Don't throw here, continue with token exchange
+            }
+
+            const tokenRequest: AuthorizationCodeRequest = {
+                code,
+                scopes: this.config.scopes,
+                redirectUri: redirectUriForToken || this.config.redirectUris[0],
+                codeVerifier: verifier,
+            };
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Calling MSAL acquireTokenByCode",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: {
+                    hasCode: !!tokenRequest.code,
+                    scopes: tokenRequest.scopes,
+                    redirectUri: tokenRequest.redirectUri,
+                    hasCodeVerifier: !!tokenRequest.codeVerifier,
+                    codeVerifierLength: tokenRequest.codeVerifier?.length,
+                },
+            });
+
+            let response: AuthenticationResult | null;
+            try {
+                response =
+                    await this.msalClient.acquireTokenByCode(tokenRequest);
+            } catch (msalError) {
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "MSAL token acquisition failed",
+                    debug: true,
+                    suppress: false,
+                    type: "error",
+                    data: {
+                        error:
+                            msalError instanceof Error
+                                ? msalError.message
+                                : String(msalError),
+                        errorName:
+                            msalError instanceof Error
+                                ? msalError.name
+                                : undefined,
+                        stack:
+                            msalError instanceof Error
+                                ? msalError.stack
+                                : undefined,
+                    },
+                });
+                throw new Error(
+                    `Token acquisition failed: ${msalError instanceof Error ? msalError.message : String(msalError)}`,
+                );
+            }
+
+            if (!response) {
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "MSAL returned null response",
+                    debug: true,
+                    suppress: false,
+                    type: "error",
+                });
+                throw new Error("Failed to acquire token - null response");
+            }
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Successfully exchanged code for tokens",
+                debug: true, // Force debug
+                suppress: false,
+                type: "success",
+                data: {
+                    account: response.account,
+                    hasAccessToken: !!response.accessToken,
+                    hasIdToken: !!response.idToken,
+                    expiresOn: response.expiresOn,
+                },
+            });
+
+            return {
+                accessToken: response.accessToken,
+                idToken: response.idToken,
+                refreshToken: undefined, // MSAL handles refresh tokens internally
+                expiresOn: response.expiresOn || undefined,
+                account: response.account || undefined,
+            };
+        } catch (error) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Failed to exchange code for tokens",
+                error,
+                debug: true, // Force debug
+                suppress: false,
+                type: "error",
+                data: {
+                    errorMessage:
+                        error instanceof Error ? error.message : String(error),
+                    errorName: error instanceof Error ? error.name : undefined,
+                    errorStack:
+                        error instanceof Error ? error.stack : undefined,
+                    code: `${code?.substring(0, 20)}...`, // Log partial code for debugging
+                    state,
+                },
+            });
+            throw error;
+        }
+    }
+
+    /**
+     * Ensure the given redirect URI is registered in the Azure app registration
+     * Uses client credentials with Microsoft Graph
+     */
+    private async ensureRedirectUriRegistered(
+        redirectUri: string,
+    ): Promise<void> {
+        // Quick sanity check
+        try {
+            new URL(redirectUri);
+        } catch {
+            throw new Error("Invalid redirect URI");
+        }
+
+        const token = await this.getGraphAccessToken();
+        const appObjectId = await this.getApplicationObjectIdByAppId(token);
+        if (!appObjectId)
+            throw new Error("Azure application not found for clientId");
+
+        // Fetch current app to read redirectUris
+        const appResp = await fetch(
+            `https://graph.microsoft.com/v1.0/applications/${appObjectId}`,
+            {
+                headers: { Authorization: `Bearer ${token}` },
+            },
+        );
+        if (!appResp.ok)
+            throw new Error(`Failed to fetch application: ${appResp.status}`);
+        const appJson = await appResp.json();
+        const existing: string[] =
+            (appJson?.web?.redirectUris as string[]) || [];
+        if (existing.includes(redirectUri)) return;
+        const next = Array.from(new Set([...existing, redirectUri]));
+
+        const patchResp = await fetch(
+            `https://graph.microsoft.com/v1.0/applications/${appObjectId}`,
+            {
+                method: "PATCH",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ web: { redirectUris: next } }),
+            },
+        );
+        if (!patchResp.ok)
+            throw new Error(
+                `Failed to update redirect URIs: ${patchResp.status}`,
+            );
+    }
+
+    private async getGraphAccessToken(): Promise<string> {
+        const params = new URLSearchParams({
+            grant_type: "client_credentials",
+            client_id: this.config.clientId,
+            client_secret: this.config.clientSecret,
+            scope: "https://graph.microsoft.com/.default",
+        });
+        const resp = await fetch(
+            `https://login.microsoftonline.com/${this.config.tenantId}/oauth2/v2.0/token`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: params.toString(),
+            },
+        );
+        if (!resp.ok)
+            throw new Error(`Failed to get Graph token: ${resp.status}`);
+        const json = await resp.json();
+        return json.access_token as string;
+    }
+
+    private async getApplicationObjectIdByAppId(
+        accessToken: string,
+    ): Promise<string | null> {
+        const url = `https://graph.microsoft.com/v1.0/applications?$filter=appId eq '${this.config.clientId}'`;
+        const resp = await fetch(url, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!resp.ok)
+            throw new Error(`Failed to query applications: ${resp.status}`);
+        const json = await resp.json();
+        const app = json?.value?.[0];
+        return app?.id || null;
+    }
+
+    /**
+     * Get user info from Microsoft Graph
+     */
+    async getUserInfo(accessToken: string): Promise<I_UserInfo> {
+        try {
+            const response = await fetch(
+                "https://graph.microsoft.com/v1.0/me",
+                {
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                    },
+                },
+            );
+
+            if (!response.ok) {
+                throw new Error(
+                    `Failed to fetch user info: ${response.statusText}`,
+                );
+            }
+
+            const data = await response.json();
+
+            return {
+                id: data.id,
+                email: data.mail || data.userPrincipalName,
+                displayName: data.displayName,
+                givenName: data.givenName,
+                surname: data.surname,
+                userPrincipalName: data.userPrincipalName,
+            };
+        } catch (error) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Failed to get user info from Microsoft Graph",
+                error,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+            });
+            throw error;
+        }
+    }
+
+    /**
+     * Create or update user in database
+     */
+    async createOrUpdateUser(
+        userInfo: I_UserInfo,
+        _tokenResponse: I_TokenResponse,
+    ): Promise<{
+        agentId: string;
+        sessionId: string;
+        jwt: string;
+        email: string;
+        displayName: string;
+        username: string;
+    }> {
+        try {
+            // Start a transaction
+            return await this.db.begin(async (tx) => {
+                // Check if user exists with this Azure AD ID
+                const [existingProvider] = await tx<
+                    [{ auth__agent_id: string }]
+                >`
+                    SELECT auth__agent_id
+                    FROM auth.agent_auth_providers
+                    WHERE auth__provider_name = 'azure'
+                      AND auth__provider_uid = ${userInfo.id}
+                `;
+
+                let agentId: string;
+
+                if (existingProvider) {
+                    // User exists, update their info
+                    agentId = existingProvider.auth__agent_id;
+
+                    // Update the auth provider record
+                    await tx`
+                        UPDATE auth.agent_auth_providers
+                        SET auth__provider_email = ${userInfo.email},
+                            auth__metadata = ${JSON.stringify({
+                                displayName: userInfo.displayName,
+                                givenName: userInfo.givenName,
+                                surname: userInfo.surname,
+                                userPrincipalName: userInfo.userPrincipalName,
+                                lastLogin: new Date().toISOString(),
+                            })},
+                            general__updated_at = NOW()
+                        WHERE auth__agent_id = ${agentId}
+                          AND auth__provider_name = 'azure'
+                    `;
+
+                    // Update profile
+                    await tx`
+                        UPDATE auth.agent_profiles
+                        SET profile__last_seen_at = NOW(),
+                            general__updated_at = NOW()
+                        WHERE general__agent_profile_id = ${agentId}
+                    `;
+                } else {
+                    // New user, create agent and provider records
+                    agentId = randomUUID();
+
+                    // Generate a username from email or displayName
+                    let username = userInfo.displayName;
+                    if (!username && userInfo.email) {
+                        // Extract username part from email (before @)
+                        username = userInfo.email.split("@")[0];
+                        // Make it more readable by replacing dots and underscores with spaces
+                        username = username.replace(/[._]/g, " ");
+                        // Capitalize first letter of each word
+                        username = username.replace(/\b\w/g, (char) =>
+                            char.toUpperCase(),
+                        );
+                    }
+                    if (!username) {
+                        // Fallback to a generated username
+                        username = `User${Math.floor(Math.random() * 10000)}`;
+                    }
+
+                    // Create agent profile
+                    await tx`
+                        INSERT INTO auth.agent_profiles (
+                            general__agent_profile_id,
+                            profile__username,
+                            auth__email,
+                            auth__is_admin,
+                            auth__is_anon,
+                            profile__last_seen_at
+                        ) VALUES (
+                            ${agentId}::UUID,
+                            ${username},
+                            ${userInfo.email},
+                            false,
+                            false,
+                            NOW()
+                        )
+                    `;
+
+                    // Create auth provider record
+                    await tx`
+                        INSERT INTO auth.agent_auth_providers (
+                            auth__agent_id,
+                            auth__provider_name,
+                            auth__provider_uid,
+                            auth__provider_email,
+                            auth__metadata
+                        ) VALUES (
+                            ${agentId}::UUID,
+                            'azure',
+                            ${userInfo.id},
+                            ${userInfo.email},
+                            ${JSON.stringify({
+                                displayName: userInfo.displayName,
+                                givenName: userInfo.givenName,
+                                surname: userInfo.surname,
+                                userPrincipalName: userInfo.userPrincipalName,
+                                lastLogin: new Date().toISOString(),
+                            })}
+                        )
+                    `;
+
+                    // Apply default sync-group roles for Azure provider (mirror anon flow)
+                    try {
+                        const [providerConfig] = await tx<
+                            [
+                                {
+                                    provider__default_permissions__can_read: string[];
+                                    provider__default_permissions__can_insert: string[];
+                                    provider__default_permissions__can_update: string[];
+                                    provider__default_permissions__can_delete: string[];
+                                },
+                            ]
+                        >`
+                            SELECT 
+                                provider__default_permissions__can_read,
+                                provider__default_permissions__can_insert,
+                                provider__default_permissions__can_update,
+                                provider__default_permissions__can_delete
+                            FROM auth.auth_providers
+                            WHERE provider__name = 'azure'
+                              AND provider__enabled = true
+                        `;
+
+                        if (providerConfig) {
+                            const allGroups = new Set([
+                                ...providerConfig.provider__default_permissions__can_read,
+                                ...providerConfig.provider__default_permissions__can_insert,
+                                ...providerConfig.provider__default_permissions__can_update,
+                                ...providerConfig.provider__default_permissions__can_delete,
+                            ]);
+
+                            for (const group of allGroups) {
+                                await tx`
+                                    INSERT INTO auth.agent_sync_group_roles (
+                                        auth__agent_id,
+                                        group__sync,
+                                        permissions__can_read,
+                                        permissions__can_insert,
+                                        permissions__can_update,
+                                        permissions__can_delete
+                                    ) VALUES (
+                                        ${agentId}::UUID,
+                                        ${group},
+                                        ${providerConfig.provider__default_permissions__can_read.includes(group)},
+                                        ${providerConfig.provider__default_permissions__can_insert.includes(group)},
+                                        ${providerConfig.provider__default_permissions__can_update.includes(group)},
+                                        ${providerConfig.provider__default_permissions__can_delete.includes(group)}
+                                    )
+                                    ON CONFLICT (auth__agent_id, group__sync)
+                                    DO UPDATE SET
+                                        permissions__can_read = ${providerConfig.provider__default_permissions__can_read.includes(group)},
+                                        permissions__can_insert = ${providerConfig.provider__default_permissions__can_insert.includes(group)},
+                                        permissions__can_update = ${providerConfig.provider__default_permissions__can_update.includes(group)},
+                                        permissions__can_delete = ${providerConfig.provider__default_permissions__can_delete.includes(group)}
+                                `;
+                            }
+
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message:
+                                    "Applied default Azure sync-group roles to new user",
+                                debug: true,
+                                suppress: false,
+                                type: "debug",
+                                data: { agentId, groupsCount: allGroups.size },
+                            });
+                        }
+                    } catch (roleError) {
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message:
+                                "Failed to apply default Azure sync-group roles",
+                            error: roleError,
+                            debug: true,
+                            suppress: false,
+                            type: "warning",
+                            data: { agentId },
+                        });
+                    }
+                }
+
+                // Fetch the actual profile data from database and provider metadata
+                const [profile] = await tx<
+                    [
+                        {
+                            profile__username: string;
+                            auth__email: string;
+                            azure_display_name: string | null;
+                        },
+                    ]
+                >`
+                    SELECT 
+                        p.profile__username, 
+                        p.auth__email,
+                        ap.auth__metadata->>'displayName' as azure_display_name
+                    FROM auth.agent_profiles p
+                    LEFT JOIN auth.agent_auth_providers ap 
+                        ON p.general__agent_profile_id = ap.auth__agent_id 
+                        AND ap.auth__provider_name = 'azure'
+                    WHERE p.general__agent_profile_id = ${agentId}::UUID
+                `;
+
+                if (!profile) {
+                    throw new Error("Failed to fetch created/updated profile");
+                }
+
+                // Create a new session
+                const sessionId = randomUUID();
+                const expiresAt = new Date();
+                expiresAt.setHours(expiresAt.getHours() + 24); // 24 hour session
+
+                // Create JWT token - use profile email for consistency
+                const jwt = sign(
+                    {
+                        sessionId,
+                        agentId,
+                        provider: Auth.E_Provider.AZURE,
+                        email: profile.auth__email,
+                    },
+                    this.config.jwtSecret,
+                    {
+                        expiresIn: "24h",
+                    },
+                );
+
+                // Store session in database
+                await tx`
+                    INSERT INTO auth.agent_sessions (
+                        general__session_id,
+                        auth__agent_id,
+                        auth__provider_name,
+                        session__expires_at,
+                        session__jwt,
+                        session__is_active
+                    ) VALUES (
+                        ${sessionId}::UUID,
+                        ${agentId}::UUID,
+                        'azure',
+                        ${expiresAt},
+                        ${jwt},
+                        true
+                    )
+                `;
+
+                return {
+                    agentId,
+                    sessionId,
+                    jwt,
+                    email: profile.auth__email,
+                    displayName:
+                        profile.azure_display_name ||
+                        userInfo.displayName ||
+                        profile.profile__username,
+                    username: profile.profile__username,
+                };
+            });
+        } catch (error) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Failed to create or update user",
+                error,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+            });
+            throw error;
+        }
+    }
+
+    // This method is now in `util/auth.ts`
+    // async createAnonymousUser(): Promise<{
+    //     agentId: string;
+    //     sessionId: string;
+    //     jwt: string;
+    // }> { ... }
+
+    // This method is now in `util/auth.ts`
+    // async signOut(sessionId: string): Promise<void> { ... }
+
+    /**
+     * Link Azure Entra ID account to existing agent
+     */
+    async linkProvider(
+        agentId: string,
+        userInfo: I_UserInfo,
+        _tokenResponse: I_TokenResponse,
+    ): Promise<void> {
+        try {
+            await this.db.begin(async (tx) => {
+                // Check if this Azure Entra ID account is already linked to another agent
+                const [existingLink] = await tx<[{ auth__agent_id: string }]>`
+                    SELECT auth__agent_id
+                    FROM auth.agent_auth_providers
+                    WHERE auth__provider_name = 'azure'
+                      AND auth__provider_uid = ${userInfo.id}
+                      AND auth__agent_id != ${agentId}::UUID
+                `;
+
+                if (existingLink) {
+                    throw new Error(
+                        "This Azure Entra ID account is already linked to another user",
+                    );
+                }
+
+                // Check if agent already has Azure linked
+                const [hasAzure] = await tx<[{ count: number }]>`
+                    SELECT COUNT(*) as count
+                    FROM auth.agent_auth_providers
+                    WHERE auth__agent_id = ${agentId}::UUID
+                      AND auth__provider_name = 'azure'
+                `;
+
+                if (hasAzure?.count > 0) {
+                    throw new Error(
+                        "This account already has an Azure Entra ID provider linked",
+                    );
+                }
+
+                // Link the provider
+                await tx`
+                    INSERT INTO auth.agent_auth_providers (
+                        auth__agent_id,
+                        auth__provider_name,
+                        auth__provider_uid,
+                        auth__provider_email,
+                        auth__metadata
+                    ) VALUES (
+                        ${agentId}::UUID,
+                        'azure',
+                        ${userInfo.id},
+                        ${userInfo.email},
+                        ${JSON.stringify({
+                            displayName: userInfo.displayName,
+                            givenName: userInfo.givenName,
+                            surname: userInfo.surname,
+                            userPrincipalName: userInfo.userPrincipalName,
+                            linkedAt: new Date().toISOString(),
+                        })}
+                    )
+                `;
+            });
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Successfully linked Azure Entra ID provider",
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "debug",
+                data: { agentId, azureId: userInfo.id },
+            });
+        } catch (error) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Failed to link Azure Entra ID provider",
+                error,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+            });
+            throw error;
+        }
+    }
+
+    /**
+     * Refresh access token using silent flow
+     * Note: MSAL manages refresh tokens internally, so we use acquireTokenSilent
+     */
+    async refreshAccessToken(agentId: string): Promise<string> {
+        try {
+            // Get user account info from database
+            const [provider] = await this.db<
+                [
+                    {
+                        auth__provider_uid: string;
+                        auth__provider_email: string;
+                    },
+                ]
+            >`
+                SELECT auth__provider_uid, auth__provider_email
+                FROM auth.agent_auth_providers
+                WHERE auth__agent_id = ${agentId}::UUID
+                  AND auth__provider_name = 'azure'
+            `;
+
+            if (!provider) {
+                throw new Error("No Azure Entra ID provider found for user");
+            }
+
+            // Try to get token from cache using acquireTokenSilent
+            const account = {
+                homeAccountId: `${provider.auth__provider_uid}.${this.config.tenantId}`,
+                environment: "login.microsoftonline.com",
+                tenantId: this.config.tenantId,
+                username: provider.auth__provider_email,
+                localAccountId: provider.auth__provider_uid,
+            };
+
+            const silentRequest = {
+                scopes: this.config.scopes,
+                account: account,
+            };
+
+            try {
+                const response =
+                    await this.msalClient.acquireTokenSilent(silentRequest);
+                if (!response) {
+                    throw new Error("Failed to acquire token silently");
+                }
+                return response.accessToken;
+            } catch (silentError) {
+                // If silent acquisition fails, the user needs to re-authenticate
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message:
+                        "Silent token acquisition failed, user needs to re-authenticate via Azure Entra ID",
+                    error: silentError,
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    type: "debug",
+                });
+                throw new Error(
+                    "Token refresh failed. Please re-authenticate.",
+                );
+            }
+        } catch (error) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Failed to refresh access token",
+                error,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+            });
+            throw error;
+        }
+    }
+
+    // This method is now in `util/auth.ts`
+    // async signOut(sessionId: string): Promise<void> { ... }
+}
+
+// =================================================================================
+// ================ HELPER FUNCTIONS ==================
+// =================================================================================
+
+/**
+ * Parse OAuth state parameter
+ */
+export function parseOAuthState(stateParam: string): I_OAuthState {
+    try {
+        return JSON.parse(
+            Buffer.from(stateParam, "base64url").toString("utf8"),
+        );
+    } catch (_error) {
+        throw new Error("Invalid state parameter");
+    }
+}
+
+/**
+ * Create Azure AD configuration from environment/database
+ */
+export async function createAzureADConfig(db: SQL): Promise<I_AzureADConfig> {
+    try {
+        // Env-only configuration (no DB fallback)
+        const envClientId = serverConfiguration.VRCA_SERVER_AUTH_AZURE_CLIENT_ID;
+        const envClientSecret = serverConfiguration.VRCA_SERVER_AUTH_AZURE_CLIENT_SECRET;
+        const envTenantId = serverConfiguration.VRCA_SERVER_AUTH_AZURE_TENANT_ID;
+        const envJwtSecret = serverConfiguration.VRCA_SERVER_AUTH_AZURE_JWT_SECRET;
+        const envScopes = serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES;
+        const envRedirectUris = serverConfiguration.VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS;
+
+        // If env is set for required fields, use that and compute sensible defaults
+        if (envClientId && envClientSecret && envJwtSecret) {
+            if (!envRedirectUris || envRedirectUris.length === 0) {
+                throw new Error("Azure Entra ID redirect URIs not configured. Set VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS.");
+            }
+            // Compute default redirect origin from public REST Auth base
+            const publicHost = serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT;
+            const publicPort = serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT;
+            const ssl = true; // Public is fronted by reverse proxy; default to https
+            const defaultOrigin = `${ssl ? "https" : "http"}://${publicHost}${publicPort && publicPort !== 443 ? ":" + publicPort : ""}`;
+
+            const endSessionUrl = `https://login.microsoftonline.com/${envTenantId}/oauth2/v2.0/logout`;
+
+            return {
+                clientId: envClientId,
+                clientSecret: envClientSecret,
+                tenantId: envTenantId || "common",
+                redirectUris: envRedirectUris,
+                scopes: Array.isArray(envScopes) ? envScopes : [
+                    "openid",
+                    "profile",
+                    "email",
+                    "User.Read",
+                ],
+                jwtSecret: envJwtSecret,
+                endSessionUrl,
+            };
+        }
+
+        // If env is missing, hard fail with clear message
+        throw new Error(
+            "Azure Entra ID environment variables are not fully configured (require CLIENT_ID, CLIENT_SECRET, JWT_SECRET).",
+        );
+    } catch (error) {
+        BunLogModule({
+            prefix: LOG_PREFIX,
+            message: "Failed to load Azure Entra ID configuration",
+            error,
+            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            type: "error",
+        });
+        throw error;
+    }
+}
+
+/**
+ * Ensure the `auth.auth_providers` row for Azure exists and matches env-based config.
+ * - Creates the row if not present
+ * - Updates enabled flag and default permission arrays to match local config
+ */
+export async function ensureAzureProviderSeed(db: SQL): Promise<void> {
+    const enabled = serverConfiguration.VRCA_SERVER_AUTH_AZURE_ENABLED;
+    const canRead = serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_READ;
+    const canInsert = serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_INSERT;
+    const canUpdate = serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_UPDATE;
+    const canDelete = serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_DELETE;
+    const jwtSecret = serverConfiguration.VRCA_SERVER_AUTH_AZURE_JWT_SECRET;
+
+    await db.begin(async (tx) => {
+        const [existing] = await tx<[{ provider__name: string }]>`
+            SELECT provider__name
+            FROM auth.auth_providers
+            WHERE provider__name = ${PROVIDER_NAME}
+        `;
+
+        if (!existing) {
+            await tx`
+                INSERT INTO auth.auth_providers (
+                    provider__name,
+                    provider__display_name,
+                    provider__enabled,
+                    provider__jwt_secret,
+                    provider__session_max_per_agent,
+                    provider__session_duration_jwt_string,
+                    provider__session_duration_ms,
+                    provider__session_max_age_ms,
+                    provider__session_inactive_expiry_ms,
+                    provider__default_permissions__can_read,
+                    provider__default_permissions__can_insert,
+                    provider__default_permissions__can_update,
+                    provider__default_permissions__can_delete
+                ) VALUES (
+                    ${PROVIDER_NAME},
+                    ${PROVIDER_DISPLAY_NAME},
+                    ${enabled},
+                    ${jwtSecret},
+                    ${SESSION_MAX_PER_AGENT},
+                    ${SESSION_DURATION_JWT_STRING},
+                    ${SESSION_DURATION_MS},
+                    ${SESSION_MAX_AGE_MS},
+                    ${SESSION_INACTIVE_EXPIRY_MS},
+                    ${sql.array(canRead, "TEXT")},
+                    ${sql.array(canInsert, "TEXT")},
+                    ${sql.array(canUpdate, "TEXT")},
+                    ${sql.array(canDelete, "TEXT")}
+                )
+            `;
+            return;
+        }
+
+        await tx`
+            UPDATE auth.auth_providers
+            SET
+                provider__enabled = ${enabled},
+                provider__default_permissions__can_read = ${sql.array(canRead, "TEXT")},
+                provider__default_permissions__can_insert = ${sql.array(canInsert, "TEXT")},
+                provider__default_permissions__can_update = ${sql.array(canUpdate, "TEXT")},
+                provider__default_permissions__can_delete = ${sql.array(canDelete, "TEXT")},
+                general__updated_at = NOW()
+            WHERE provider__name = ${PROVIDER_NAME}
+        `;
+    });
+}

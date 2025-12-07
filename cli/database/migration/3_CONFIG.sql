@@ -30,8 +30,7 @@ CREATE TABLE config.network_config (
 
 -- Authentication Configuration
 CREATE TABLE config.auth_config (
-    auth_config__session_cleanup_interval BIGINT NOT NULL,
-    auth_config__heartbeat_interval_ms INTEGER NOT NULL
+    auth_config__heartbeat_interval_ms BIGINT NOT NULL
 );
 
 -- Database Version Configuration
@@ -39,7 +38,7 @@ CREATE TABLE config.database_config (
     database_config__major_version INTEGER NOT NULL,
     database_config__minor_version INTEGER NOT NULL,
     database_config__patch_version INTEGER NOT NULL,
-    database_config__setup_timestamp TIMESTAMP NOT NULL
+    database_config__setup_timestamp TIMESTAMP
 );
 
 
@@ -67,10 +66,8 @@ INSERT INTO config.network_config (
 
 -- Authentication Configuration
 INSERT INTO config.auth_config (
-    auth_config__session_cleanup_interval,
     auth_config__heartbeat_interval_ms
 ) VALUES (
-    3600000,
     3000
 );
 
@@ -89,9 +86,8 @@ INSERT INTO config.entity_config (
 INSERT INTO config.database_config (
     database_config__major_version,
     database_config__minor_version,
-    database_config__patch_version,
-    database_config__setup_timestamp
-) VALUES (1, 0, 0, CURRENT_TIMESTAMP);
+    database_config__patch_version
+) VALUES (1, 0, 0);
 
 
 -- ============================================================================

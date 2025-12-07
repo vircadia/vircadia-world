@@ -3,7 +3,7 @@ name: ${VRCA_SERVER_CONTAINER_NAME}
 networks:
   vircadia_internal_network:
     driver: bridge
-    internal: true  # Make this network internal to prevent direct internet access
+    internal: true # Make this network internal to prevent direct internet access
 
   # Create a separate network for services that need external access
   vircadia_public_network:
@@ -16,21 +16,55 @@ volumes:
 services:
   # Postgres service
   vircadia_world_postgres:
-    image: postgres:17.5-alpine3.21
+    image: postgres:18.0-alpine3.22
     container_name: ${VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME}
-    user: "70:70"  # Alpine postgres user (UID:GID)
+    user: "70:70" # Alpine postgres user (UID:GID)
     restart: always
     environment:
       POSTGRES_DB: ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE}
-      POSTGRES_USER: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}  # This user gets superuser privileges by default
+      POSTGRES_USER: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME} # This user gets superuser privileges by default
       POSTGRES_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}
     command: [
-      "postgres", 
-      "-c", "wal_level=logical",
-      "-c", "max_wal_size=4GB",        # Increase from default 1GB to 4GB
-      "-c", "checkpoint_timeout=5min", # Default is 5min, but good to explicitly set
-      "-c", "checkpoint_completion_target=0.9"  # Spread checkpoint I/O over more time
-    ]
+        "postgres",
+        "-c",
+        "wal_level=logical",
+        "-c",
+        "max_replication_slots=10", # Enable replication slots
+        "-c",
+        "max_wal_senders=10", # Enable WAL senders for replication
+        "-c",
+        "max_wal_size=4GB", # Increase from default 1GB to 4GB
+        "-c",
+        "checkpoint_timeout=5min", # Default is 5min, but good to explicitly set
+        "-c",
+        "checkpoint_completion_target=0.9", # Spread checkpoint I/O over more time
+        "-c",
+        "shared_buffers=256MB", # Increase shared memory for caching
+        "-c",
+        "effective_cache_size=1GB", # Tell planner about available cache
+        "-c",
+        "work_mem=16MB", # More memory for sorts/joins
+        "-c",
+        "maintenance_work_mem=128MB", # For VACUUM, index creation
+        "-c",
+        "synchronous_commit=off", # Trade durability for speed
+        "-c",
+        "commit_delay=100", # Batch commits (microseconds)
+        "-c",
+        "max_connections=200", # Increase connection limit
+        "-c",
+        "random_page_cost=1.1", # Optimize for SSD storage
+        "-c",
+        "effective_io_concurrency=200", # For SSD
+        "-c",
+        "wal_compression=on", # Reduce WAL size
+        "-c",
+        "wal_buffers=16MB", # More WAL buffer memory
+        "-c",
+        "autovacuum_max_workers=4", # More vacuum workers
+        "-c",
+        "autovacuum_naptime=10s", # More frequent autovacuum
+      ]
     ports:
       - "${VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL}:5432"
     read_only: true
@@ -40,10 +74,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [
-        "CMD-SHELL", 
-        "pg_isready -U ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME} -d ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE} && psql -U ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME} -d ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE} -c \"SELECT COUNT(*) FROM config.seeds\" | grep -q '[1-9]'"
-      ]
+      test:
+        [
+          "CMD-SHELL",
+          'pg_isready -U ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME} -d ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE} && psql -U ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME} -d ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE} -tAc "SELECT database_config__setup_timestamp IS NOT NULL FROM config.database_config LIMIT 1" | grep -q ''t''',
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -55,7 +90,7 @@ services:
   vircadia_world_pgweb:
     image: sosedoff/pgweb:0.16.2
     container_name: ${VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME}
-    user: "1000:1000"  # Run as non-root user (typical first user UID/GID)
+    user: "1000:1000" # Run as non-root user (typical first user UID/GID)
     restart: always
     ports:
       - "${VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL}:8081"
@@ -85,21 +120,24 @@ services:
       - vircadia_public_network
 
   # API service
-  vircadia_world_api_manager:
-    image: oven/bun:1.2.17-alpine
-    container_name: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME}
-    user: "1000:1000"  # Run as non-root user
+  vircadia_world_api_ws_manager:
+    image: oven/bun:1.3.1-alpine
+    container_name: ${VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_CONTAINER_NAME}
+    user: "1000:1000" # Run as non-root user
     restart: always
     read_only: true
     ports:
-      - "${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL}"
+      - "${VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:3020"
     volumes:
-      - ./api/volume/app:/app
+      - ./api_ws/volume/app:/app
     working_dir: /app
-    command: ["bun", "run", "dist/world.api.manager.js"]
+    command: ["bun", "run", "start"]
     environment:
-      VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
-      VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
+      VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_DEBUG: ${VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_DEBUG}
+      VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SUPPRESS: ${VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SUPPRESS}
+      VRCA_SERVER_DEFAULT_HOST: ${VRCA_SERVER_DEFAULT_HOST}
+      VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST}
+      VRCA_SERVER_ALLOWED_ORIGINS: ${VRCA_SERVER_ALLOWED_ORIGINS}
 
       VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}
       VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME}
@@ -109,16 +147,189 @@ services:
       VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}
       VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD}
 
-      VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL}
-      VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL}
-      VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT}
-      VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT}
+      VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT}
+      VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT}
     depends_on:
       vircadia_world_postgres:
         condition: service_healthy
         restart: true
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL}/stats"]
+      test:
+        ["CMD-SHELL", "wget --spider http://127.0.0.1:3020/world/rest/ws/stats"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - vircadia_internal_network
+      - vircadia_public_network
+
+  # Auth REST service
+  vircadia_world_api_rest_auth_manager:
+    image: oven/bun:1.3.1-alpine
+    container_name: ${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME}
+    user: "1000:1000"
+    restart: always
+    read_only: true
+    ports:
+      - "${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:3022"
+    volumes:
+      - ./api_rest_auth/volume/app:/app
+    working_dir: /app
+    command: ["bun", "run", "start"]
+    environment:
+      VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_DEBUG: ${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_DEBUG}
+      VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_SUPPRESS: ${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_SUPPRESS}
+      VRCA_SERVER_DEFAULT_HOST: ${VRCA_SERVER_DEFAULT_HOST}
+      VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST}
+      VRCA_SERVER_ALLOWED_ORIGINS: ${VRCA_SERVER_ALLOWED_ORIGINS}
+
+      VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}
+      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME}
+      VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL: ${VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL}
+      VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL: ${VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL}
+      VRCA_SERVER_SERVICE_POSTGRES_DATABASE: ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE}
+      VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}
+      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD}
+
+      VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT}
+      VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT}
+      # Azure Entra ID Auth (env-first configuration)
+      VRCA_SERVER_AUTH_AZURE_CLIENT_ID: ${VRCA_SERVER_AUTH_AZURE_CLIENT_ID}
+      VRCA_SERVER_AUTH_AZURE_CLIENT_SECRET: ${VRCA_SERVER_AUTH_AZURE_CLIENT_SECRET}
+      VRCA_SERVER_AUTH_AZURE_TENANT_ID: ${VRCA_SERVER_AUTH_AZURE_TENANT_ID}
+      VRCA_SERVER_AUTH_AZURE_JWT_SECRET: ${VRCA_SERVER_AUTH_AZURE_JWT_SECRET}
+      VRCA_SERVER_AUTH_AZURE_SCOPES: ${VRCA_SERVER_AUTH_AZURE_SCOPES}
+      VRCA_SERVER_AUTH_AZURE_ENABLED: ${VRCA_SERVER_AUTH_AZURE_ENABLED}
+      VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_READ: ${VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_READ}
+      VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_INSERT: ${VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_INSERT}
+      VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_UPDATE: ${VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_UPDATE}
+      VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_DELETE: ${VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_DELETE}
+      VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS: ${VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS}
+    depends_on:
+      vircadia_world_postgres:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --spider http://127.0.0.1:3022/world/rest/auth/stats",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - vircadia_internal_network
+      - vircadia_public_network
+
+  # Asset REST service
+  vircadia_world_api_rest_asset_manager:
+    image: oven/bun:1.3.1-alpine
+    container_name: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME}
+    user: "1000:1000"
+    restart: always
+    read_only: true
+    ports:
+      - "${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:3023"
+    volumes:
+      - ./api_rest_asset/volume/app:/app
+      # Writable cache directory for assets (tmpfs inside container)
+      - type: tmpfs
+        target: /cache
+        tmpfs:
+          size: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAX_BYTES}
+    working_dir: /app
+    command: ["bun", "run", "start"]
+    environment:
+      VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_DEBUG: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_DEBUG}
+      VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_SUPPRESS: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_SUPPRESS}
+      VRCA_SERVER_DEFAULT_HOST: ${VRCA_SERVER_DEFAULT_HOST}
+      VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST}
+      VRCA_SERVER_ALLOWED_ORIGINS: ${VRCA_SERVER_ALLOWED_ORIGINS}
+
+      # Asset cache configuration
+      VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_DIR: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_DIR}
+      VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAX_BYTES: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAX_BYTES}
+
+      VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}
+      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME}
+      VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL: ${VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL}
+      VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL: ${VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL}
+      VRCA_SERVER_SERVICE_POSTGRES_DATABASE: ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE}
+      VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}
+      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD}
+
+      VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_PUBLIC_AVAILABLE_AT}
+      VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_PUBLIC_AVAILABLE_AT}
+    depends_on:
+      vircadia_world_postgres:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --spider http://127.0.0.1:3023/world/rest/asset/stats",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - vircadia_internal_network
+      - vircadia_public_network
+
+  # Inference REST service
+  vircadia_world_api_rest_inference_manager:
+    image: oven/bun:1.3.1-alpine
+    container_name: ${VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_CONTAINER_NAME}
+    user: "1000:1000"
+    restart: always
+    read_only: true
+    ports:
+      - "${VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:3024"
+    volumes:
+      - ./api_rest_inference/volume/app:/app
+    working_dir: /app
+    command: ["bun", "run", "start"]
+    environment:
+      VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_DEBUG: ${VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_DEBUG}
+      VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_SUPPRESS: ${VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_SUPPRESS}
+      VRCA_SERVER_DEFAULT_HOST: ${VRCA_SERVER_DEFAULT_HOST}
+      VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST}
+      VRCA_SERVER_ALLOWED_ORIGINS: ${VRCA_SERVER_ALLOWED_ORIGINS}
+
+      VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}
+      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME}
+      VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL: ${VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL}
+      VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL: ${VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL}
+      VRCA_SERVER_SERVICE_POSTGRES_DATABASE: ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE}
+      VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}
+      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD}
+
+      VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_PUBLIC_AVAILABLE_AT}
+      VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_PUBLIC_AVAILABLE_AT}
+      VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_SSL_ENABLED_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_SSL_ENABLED_PUBLIC_AVAILABLE_AT}
+
+      VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY: ${VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY}
+      VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL: ${VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL}
+
+      VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY: ${VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY}
+      VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL: ${VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL}
+      VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL: ${VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL}
+      VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE: ${VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE}
+    depends_on:
+      vircadia_world_postgres:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --spider http://127.0.0.1:3024/world/rest/inference/stats",
+        ]
       interval: 10s
       timeout: 10s
       retries: 3
@@ -129,20 +340,20 @@ services:
 
   # State service
   vircadia_world_state_manager:
-    image: oven/bun:1.2.17-alpine
+    image: oven/bun:1.3.1-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME}
-    user: "1000:1000"  # Run as non-root user
+    user: "1000:1000" # Run as non-root user
     restart: always
     read_only: true
-    ports:
-      - "${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL}"
     volumes:
       - ./state/volume/app:/app
     working_dir: /app
-    command: ["bun", "run", "dist/world.state.manager.js"]
+    command: ["bun", "run", "start"]
     environment:
-      VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
-      VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
+      VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_DEBUG: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_DEBUG}
+      VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_SUPPRESS: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_SUPPRESS}
+      VRCA_SERVER_DEFAULT_HOST: ${VRCA_SERVER_DEFAULT_HOST}
+      VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_HOST}
 
       VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}
       VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME}
@@ -152,14 +363,66 @@ services:
       VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}
       VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD}
 
-      VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL}
-      VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL}
     depends_on:
       vircadia_world_postgres:
         condition: service_healthy
         restart: true
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL}/stats"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget --spider http://127.0.0.1:3021/world/rest/state/stats",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - vircadia_internal_network
+      - vircadia_public_network
+
+  # Caddy reverse proxy service
+  vircadia_world_caddy:
+    image: caddy:2.10.2-alpine
+    container_name: ${VRCA_SERVER_SERVICE_CADDY_CONTAINER_NAME}
+    user: "1000:1000"
+    restart: always
+    read_only: true
+    ports:
+      - "${VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP}:80"
+      - "${VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS}:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../../client/web_babylon_js/dist-docker:/srv/app:ro
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache
+      - /data:uid=1000,gid=1000
+      - /config:uid=1000,gid=1000
+    environment:
+      CADDY_DOMAIN: ${VRCA_SERVER_SERVICE_CADDY_DOMAIN}
+      CADDY_UPSTREAM_API_WS: ${VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_CONTAINER_NAME}:3020
+      CADDY_UPSTREAM_API_AUTH: ${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME}:3022
+      CADDY_UPSTREAM_API_ASSET: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME}:3023
+      CADDY_UPSTREAM_API_INFERENCE: ${VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_CONTAINER_NAME}:3024
+      CADDY_EMAIL: ${VRCA_SERVER_SERVICE_CADDY_EMAIL}
+      CADDY_TLS_MODE: ${VRCA_SERVER_SERVICE_CADDY_TLS_MODE:-}
+    depends_on:
+      vircadia_world_api_ws_manager:
+        condition: service_healthy
+        restart: true
+      vircadia_world_api_rest_inference_manager:
+        condition: service_healthy
+        restart: true
+      vircadia_world_api_rest_auth_manager:
+        condition: service_healthy
+        restart: true
+      vircadia_world_api_rest_asset_manager:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
       interval: 10s
       timeout: 10s
       retries: 3

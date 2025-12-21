@@ -208,6 +208,12 @@ export default defineConfig(({ command }) => {
                 "@babylonjs/core/Shaders/default.fragment",
                 "@babylonjs/core/Shaders/pbr.vertex",
                 "@babylonjs/core/Shaders/pbr.fragment",
+                "@babylonjs/core/Shaders/geometry.fragment",
+                "@babylonjs/core/Shaders/geometry.vertex",
+                "@babylonjs/core/Shaders/shadowMap.vertex",
+                "@babylonjs/core/Shaders/shadowMap.fragment",
+                "@babylonjs/core/Shaders/depth.vertex",
+                "@babylonjs/core/Shaders/depth.fragment",
                 // Exclude libraries that are incompatible with Vite's dep optimizer
                 "@huggingface/transformers",
                 "kokoro-js",

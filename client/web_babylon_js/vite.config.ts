@@ -86,15 +86,15 @@ export default defineConfig(({ command }) => {
             !isProd && vueDevTools(),
             // Compression for production
             isProd && (compression() as any),
-            isProd && (compression({ algorithm: "brotliCompress" }) as any),
+            isProd && (compression({ algorithms: ["brotliCompress"] }) as any),
             // Visualizer for bundle analysis
-            isProd &&
-                visualizer({
-                    filename: "stats.html",
-                    gzipSize: true,
-                    brotliSize: true,
-                    open: false,
-                }),
+            // isProd &&
+            //     visualizer({
+            //         filename: "stats.html",
+            //         gzipSize: true,
+            //         brotliSize: true,
+            //         open: false,
+            //     }),
         ].filter(Boolean),
         define: {
             __APP_VERSION__: JSON.stringify(packageJson.version || "0.0.0"),

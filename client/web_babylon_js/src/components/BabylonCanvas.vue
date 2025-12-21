@@ -12,7 +12,7 @@
 </template>
 
 <script setup lang="ts">
-import { ArcRotateCamera, Engine, NullEngine, Scene, Vector3, WebGPUEngine, Constants } from "@babylonjs/core";
+import { ArcRotateCamera, Engine, NullEngine, Scene, Vector3, WebGPUEngine } from "@babylonjs/core";
 import { DracoDecoder } from "@babylonjs/core/Meshes/Compression/dracoDecoder.js"
 import { computed, onMounted, onUnmounted, ref, toRef, watch } from "vue";
 
@@ -234,18 +234,6 @@ onMounted(async () => {
         // Track scene readiness reactively
         scene.executeWhenReady(() => {
             sceneReady.value = true;
-        });
-
-        // WebGPU Compatibility Fix: Enforce NEAREST sampling for float textures
-        // This is critical for Global Illumination (RSM) and other WebGPU features that use Float32 textures.
-        // WebGPU throws validation errors if Float32 textures are sampled with filtering (LINEAR)
-        // unless specific features are enabled/supported, which BabylonJS's GI implementation might not fully handle by default yet.
-        scene.onNewTextureAddedObservable.add((texture) => {
-            // Apply this fix specifically for WebGPU engine, or generally if we want to be safe.
-            // Since we know the user is targeting WebGPU and experiencing "UnfilterableFloat" errors,
-            // we force NEAREST sampling on new textures.
-            // This catches RSM buffers (Flux, Normal, Position) before they cause validation errors.
-            texture.updateSamplingMode(Constants.TEXTURE_NEAREST_SAMPLINGMODE);
         });
 
         // Basic camera

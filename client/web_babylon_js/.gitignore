@@ -34,3 +34,5 @@ coverage
 .env
 .env.*
 !.env.example
+
+stats.html

@@ -5,6 +5,9 @@ import { defineConfig } from "vite";
 import vueDevTools from "vite-plugin-vue-devtools";
 import vuetify from "vite-plugin-vuetify";
 
+import { visualizer } from "rollup-plugin-visualizer";
+import { compression } from "vite-plugin-compression2";
+
 import { viteStaticCopy } from "vite-plugin-static-copy";
 import { clientBrowserConfiguration } from "../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 import packageJson from "./package.json";
@@ -81,6 +84,17 @@ export default defineConfig(({ command }) => {
             }),
             // Only include Vue DevTools in development
             !isProd && vueDevTools(),
+            // Compression for production
+            isProd && (compression() as any),
+            isProd && (compression({ algorithm: "brotliCompress" }) as any),
+            // Visualizer for bundle analysis
+            isProd &&
+                visualizer({
+                    filename: "stats.html",
+                    gzipSize: true,
+                    brotliSize: true,
+                    open: false,
+                }),
         ].filter(Boolean),
         define: {
             __APP_VERSION__: JSON.stringify(packageJson.version || "0.0.0"),
@@ -140,25 +154,39 @@ export default defineConfig(({ command }) => {
         assetsInclude: ["**/*.vertex", "**/*.fragment"],
         build: {
             target: "esnext",
-            chunkSizeWarningLimit: 3000, // Increased warning limit temporarily
-            sourcemap: true,
-            minify: true,
+            chunkSizeWarningLimit: 2000,
+            sourcemap: !isProd, // Disable sourcemaps in production for smaller builds
+            minify: "esbuild",
             reportCompressedSize: true,
             cssCodeSplit: true,
             rollupOptions: {
                 output: {
-                    manualChunks: {
-                        vendor_vue: ["vue", "vue-router", "pinia", "vuetify"],
-                        vendor_babylon: [
-                            "@babylonjs/core",
-                            "@babylonjs/inspector",
-                            "@babylonjs/loaders",
-                            "@babylonjs/havok",
-                        ],
-                        // vendor_auth: ["@azure/msal-browser"],
-                        // vendor_lodash: ["lodash-es"],
-                        // vendor_ai: ["@huggingface/transformers", "kokoro-js"],
-                        // vendor_sdk: ["@vircadia/world-sdk/browser/vue"],
+                    manualChunks(id) {
+                        if (id.includes("node_modules")) {
+                            if (id.includes("vue") || id.includes("pinia")) {
+                                return "vendor-vue";
+                            }
+                            if (id.includes("vuetify")) {
+                                return "vendor-vuetify";
+                            }
+                            if (id.includes("@babylonjs")) {
+                                if (id.includes("@babylonjs/inspector")) {
+                                    return "vendor-babylon-inspector";
+                                }
+                                return "vendor-babylon";
+                            }
+                            if (
+                                id.includes("onnxruntime-web") ||
+                                id.includes("@huggingface/transformers")
+                            ) {
+                                return "vendor-ai";
+                            }
+                            return "vendor-others";
+                        }
+                        // Handle SDK workspace paths
+                        if (id.includes("sdk/vircadia-world-sdk-ts")) {
+                            return "vendor-vircadia-sdk";
+                        }
                     },
                 },
             },

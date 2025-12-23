@@ -161,33 +161,7 @@ export default defineConfig(({ command }) => {
             cssCodeSplit: true,
             rollupOptions: {
                 output: {
-                    manualChunks(id) {
-                        if (id.includes("node_modules")) {
-                            if (id.includes("vue") || id.includes("pinia")) {
-                                return "vendor-vue";
-                            }
-                            if (id.includes("vuetify")) {
-                                return "vendor-vuetify";
-                            }
-                            if (id.includes("@babylonjs")) {
-                                if (id.includes("@babylonjs/inspector")) {
-                                    return "vendor-babylon-inspector";
-                                }
-                                return "vendor-babylon";
-                            }
-                            if (
-                                id.includes("onnxruntime-web") ||
-                                id.includes("@huggingface/transformers")
-                            ) {
-                                return "vendor-ai";
-                            }
-                            return "vendor-others";
-                        }
-                        // Handle SDK workspace paths
-                        if (id.includes("sdk/vircadia-world-sdk-ts")) {
-                            return "vendor-vircadia-sdk";
-                        }
-                    },
+                    // Manual chunking removed to simplify build
                 },
             },
         },
@@ -204,16 +178,7 @@ export default defineConfig(({ command }) => {
             include: ["buffer"],
             exclude: [
                 "@babylonjs/havok",
-                "@babylonjs/core/Shaders/default.vertex",
-                "@babylonjs/core/Shaders/default.fragment",
-                "@babylonjs/core/Shaders/pbr.vertex",
-                "@babylonjs/core/Shaders/pbr.fragment",
-                "@babylonjs/core/Shaders/geometry.fragment",
-                "@babylonjs/core/Shaders/geometry.vertex",
-                "@babylonjs/core/Shaders/shadowMap.vertex",
-                "@babylonjs/core/Shaders/shadowMap.fragment",
-                "@babylonjs/core/Shaders/depth.vertex",
-                "@babylonjs/core/Shaders/depth.fragment",
+                "@babylonjs/core",
                 // Exclude libraries that are incompatible with Vite's dep optimizer
                 "@huggingface/transformers",
                 "kokoro-js",

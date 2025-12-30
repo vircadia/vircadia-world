@@ -263,9 +263,22 @@ onMounted(async () => {
 
         // Sizing (only needed for visual engines)
         if (props.engineType !== "nullengine") {
-            window.addEventListener("resize", handleResize);
             // Initial size
             engine.resize();
+
+            // Replace window resize listener with ResizeObserver on the canvas parent
+            // This handles internal layout changes (like drawers) and prevents infinite loops
+            if (canvasRef.value && canvasRef.value.parentElement) {
+                const resizeObserver = new ResizeObserver(() => {
+                    handleResize();
+                });
+                resizeObserver.observe(canvasRef.value.parentElement);
+
+                // Store observer to disconnect on unmount
+                (canvasRef.value as any)._resizeObserver = resizeObserver;
+            } else {
+                window.addEventListener("resize", handleResize);
+            }
         }
 
         // Start rendering immediately so scene is visible without waiting for parent
@@ -285,7 +298,11 @@ defineExpose({
 
 onUnmounted(() => {
     if (props.engineType !== "nullengine") {
-        window.removeEventListener("resize", handleResize);
+        if (canvasRef.value && (canvasRef.value as any)._resizeObserver) {
+            (canvasRef.value as any)._resizeObserver.disconnect();
+        } else {
+            window.removeEventListener("resize", handleResize);
+        }
     }
     stopRenderLoop();
     scene?.dispose();
@@ -302,6 +319,9 @@ onUnmounted(() => {
 
 <style scoped>
 #renderCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
     height: 100%;
     display: block;

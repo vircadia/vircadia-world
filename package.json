@@ -60,7 +60,11 @@
                 "playwright": "^1.56.1",
                 "npm-run-all2": "^7.0.2",
                 "vite-plugin-vue-devtools": "^8.0.0",
-                "vite-plugin-vuetify": "^2.1.1"
+                "vite-plugin-vuetify": "^2.1.1",
+                "rollup-plugin-visualizer": "^6.0.5",
+                "vite-plugin-compression2": "^2.4.0",
+                "vite-plugin-static-copy": "^2.2.0",
+                "@biomejs/biome": "^2.3.8"
             },
             "cli": {
                 "@inquirer/prompts": "^7.5.3",
@@ -71,7 +75,9 @@
                 "@huggingface/transformers": "^3.7.5",
                 "kokoro-js": "^1.2.1",
                 "@cerebras/cerebras_cloud_sdk": "^1.56.1",
-                "groq-sdk": "^0.34.0"
+                "groq-sdk": "^0.34.0",
+                "onnxruntime-web": "^1.22.0",
+                "@ricky0123/vad-web": "^0.0.30"
             },
             "utils": {
                 "lodash-es": "^4.17.21",
@@ -94,7 +100,6 @@
         }
     },
     "devDependencies": {
-        "@biomejs/biome": "^2.3.8"
-    },
-    "packageManager": "pnpm@10.13.1+sha512.37ebf1a5c7a30d5fabe0c5df44ee8da4c965ca0c5af3dbab28c3a1681b70a256218d05c81c9c0dcf767ef6b8551eb5b960042b9ed4300c59242336377e01cfad"
+        "@biomejs/biome": "catalog:dev"
+    }
 }

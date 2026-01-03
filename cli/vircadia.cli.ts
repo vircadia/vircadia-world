@@ -4093,11 +4093,11 @@ if (import.meta.main) {
                 break;
             }
 
-            // PROJECT AUTO-UPGRADE (one-time upgrade)
             // PROJECT AUTO-UPGRADE (one-time or watch)
             case "project:auto-upgrade": {
                 const isCore = additionalArgs.includes("--core");
                 const isWatch = additionalArgs.includes("--watch");
+                const isTrackSubmodules = additionalArgs.includes("--track-submodules");
 
                 const result = await $`git rev-parse --abbrev-ref HEAD`;
                 const currentBranch = result.stdout.toString().trim();
@@ -4105,7 +4105,7 @@ if (import.meta.main) {
 
                 if (isWatch) {
                     BunLogModule({
-                        message: `Starting auto-upgrade watcher on branch '${currentBranch}'...`,
+                        message: `Starting auto-upgrade watcher on branch '${currentBranch}'${isTrackSubmodules ? " (tracking submodules aggressively)" : ""}...`,
                         type: "info",
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -4113,30 +4113,68 @@ if (import.meta.main) {
 
                     let rebuildProcess: any = null;
 
-                    // Initial sync on start
-                   /* Optional: could run one update immediately here, but loop handles it if we treat local!=remote, 
-                      though initially they might be equal. User said "poll ... to see if changes occurred".
-                      So we assume we start in a state, and wait for changes.
-                      However, if the user starts the watcher and they are behind, they probably expect an update.
-                      Let's leave it to the loop. 
-                      Caveat: The loop does `git fetch` then compare. If we are behind invoke, `fetch` updates `origin/branch`.
-                      Then we compare. So yes, it will detect it immediately.
-                   */
-
                     while (true) {
                         try {
                             // Poll every 5s
                             await Bun.sleep(5000);
 
-                            // Check for updates
-                            await $`git fetch origin ${currentBranch}`.quiet().nothrow();
+                            // Check for updates (fetch all tracking branches and submodules)
+                            await $`git fetch --all --prune --recurse-submodules`.quiet().nothrow();
                             
                             const localHash = (await $`git rev-parse HEAD`.quiet()).stdout.toString().trim();
                             const remoteHash = (await $`git rev-parse origin/${currentBranch}`.quiet()).stdout.toString().trim();
 
-                            if (localHash !== remoteHash) {
+                            let changesDetected = localHash !== remoteHash;
+                            let changeMessage = `Changes detected (Local: ${localHash.slice(0, 7)} -> Remote: ${remoteHash.slice(0, 7)}).`;
+
+                            // Aggressive Submodule Tracking
+                            if (!changesDetected && isTrackSubmodules) {
+                                try {
+                                    // Get all submodule paths
+                                    const submodulePaths = (await $`git config --file .gitmodules --name-only --get-regexp path`.quiet().nothrow()).stdout.toString().trim().split('\n');
+                                    
+                                    for (const configKey of submodulePaths) {
+                                        if (!configKey) continue;
+                                        // configKey is like "submodule.sdk/vircadia-world-sdk-ts.path"
+                                        // we need the name "sdk/vircadia-world-sdk-ts" to get the branch
+                                        const submoduleName = configKey.replace(/^submodule\./, '').replace(/\.path$/, '');
+                                        
+                                        const path = (await $`git config --file .gitmodules --get ${configKey}`.quiet().nothrow()).stdout.toString().trim();
+                                        
+                                        // Get tracked branch from .gitmodules, default to 'master' (or whatever git defaults to, but we need explicit check)
+                                        // If 'branch' key key is missing, standard git behavior is to track the commit recorded in superproject.
+                                        // But here we want to track a branch if configured. 
+                                        const branchCmd = await $`git config --file .gitmodules --get submodule.${submoduleName}.branch`.quiet().nothrow();
+                                        const trackedBranch = branchCmd.stdout.toString().trim() || 'master'; // defaulting to master if not set, typical for floating.
+                                        
+                                        if (path && await Bun.file(path).exists()) {
+                                            // Check inside the submodule
+                                            // We need to fetch inside the submodule to know origin status
+                                            // git fetch --recurse-submodules in superproject should have fetched submodules too? 
+                                            // Yes, if they are active.
+                                            
+                                            // Get submodule local HEAD
+                                            const subLocal = (await $`git -C ${path} rev-parse HEAD`.quiet().nothrow()).stdout.toString().trim();
+                                            // Get submodule remote branch HEAD
+                                            // Assuming remote is named 'origin'
+                                            const subRemote = (await $`git -C ${path} rev-parse origin/${trackedBranch}`.quiet().nothrow()).stdout.toString().trim();
+
+                                            if (subLocal && subRemote && subLocal !== subRemote) {
+                                                changesDetected = true;
+                                                changeMessage = `Submodule update detected in ${path} (Local: ${subLocal.slice(0,7)} -> Remote: ${subRemote.slice(0,7)} on ${trackedBranch}).`;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                } catch (err) {
+                                    // Non-fatal, just log debug
+                                    // console.error("Error checking submodules:", err);
+                                }
+                            }
+
+                            if (changesDetected) {
                                 BunLogModule({
-                                    message: `Changes detected (Local: ${localHash.slice(0, 7)} -> Remote: ${remoteHash.slice(0, 7)}). Initiating upgrade...`,
+                                    message: `${changeMessage} Initiating upgrade...`,
                                     type: "info",
                                     suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                     debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -4173,7 +4211,18 @@ if (import.meta.main) {
                                     continue;
                                 }
 
-                                await $`git submodule update --init --recursive`.nothrow();
+                                if (isTrackSubmodules) {
+                                     BunLogModule({
+                                        message: `Updating submodules to latest remote...`,
+                                        type: "info",
+                                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                    });
+                                    // Use --remote to fetch latest from tracked branch
+                                    await $`git submodule update --init --recursive --remote`.nothrow();
+                                } else {
+                                    await $`git submodule update --init --recursive`.nothrow();
+                                }
 
                                 // Start Rebuild (Background)
                                 BunLogModule({
@@ -4247,7 +4296,11 @@ if (import.meta.main) {
                         });
 
                         // Update submodules recursively
-                        await $`git submodule update --init --recursive`.nothrow();
+                        if (isTrackSubmodules) {
+                             await $`git submodule update --init --recursive --remote`.nothrow();
+                        } else {
+                             await $`git submodule update --init --recursive`.nothrow();
+                        }
 
                         // Fetch and pull current branch with recursive submodules
                         const pull =

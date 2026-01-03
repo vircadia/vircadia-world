@@ -4094,71 +4094,200 @@ if (import.meta.main) {
             }
 
             // PROJECT AUTO-UPGRADE (one-time upgrade)
+            // PROJECT AUTO-UPGRADE (one-time or watch)
             case "project:auto-upgrade": {
                 const isCore = additionalArgs.includes("--core");
-                const isAll = additionalArgs.includes("--all");
+                const isWatch = additionalArgs.includes("--watch");
+
                 const result = await $`git rev-parse --abbrev-ref HEAD`;
                 const currentBranch = result.stdout.toString().trim();
+                const upgradeCommand = `server:upgrade-${isCore ? "core" : "all"}`;
 
-                BunLogModule({
-                    message: `Starting one-time auto-upgrade on current branch for ${isCore ? "core services only" : "all services"}`,
-                    data: { currentBranch },
-                    type: "info",
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
-
-                await $`git fetch --all --prune --recurse-submodules`.nothrow();
-
-                try {
+                if (isWatch) {
                     BunLogModule({
-                        message: `Updating current branch '${currentBranch}' for ${isCore ? "core services only" : "all services"}...`,
+                        message: `Starting auto-upgrade watcher on branch '${currentBranch}'...`,
                         type: "info",
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,
                     });
 
-                    // Update submodules recursively
-                    await $`git submodule update --init --recursive`.nothrow();
+                    let rebuildProcess: any = null;
 
-                    // Fetch and pull current branch with recursive submodules
-                    const pull =
-                        await $`git pull --rebase --recurse-submodules origin ${currentBranch}`
-                            .nothrow()
-                            .quiet();
-                    if (pull.exitCode !== 0)
-                        throw new Error(
-                            `pull failed: ${pull.stderr.toString()}`,
-                        );
+                    // Initial sync on start
+                   /* Optional: could run one update immediately here, but loop handles it if we treat local!=remote, 
+                      though initially they might be equal. User said "poll ... to see if changes occurred".
+                      So we assume we start in a state, and wait for changes.
+                      However, if the user starts the watcher and they are behind, they probably expect an update.
+                      Let's leave it to the loop. 
+                      Caveat: The loop does `git fetch` then compare. If we are behind invoke, `fetch` updates `origin/branch`.
+                      Then we compare. So yes, it will detect it immediately.
+                   */
 
-                    BunLogModule({
-                        message: `Rebuilding ${isCore ? "core services only" : "all services"}...`,
-                        type: "info",
-                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                        debug: cliConfiguration.VRCA_CLI_DEBUG,
-                    });
-                    const result =
-                        await $`bun run server:rebuild-${isCore ? "core" : "all"}`.nothrow();
-                    if (result.exitCode !== 0) {
-                        throw new Error(
-                            `rebuild failed: ${result.stderr.toString()}`,
-                        );
+                    while (true) {
+                        try {
+                            // Poll every 5s
+                            await Bun.sleep(5000);
+
+                            // Check for updates
+                            await $`git fetch origin ${currentBranch}`.quiet().nothrow();
+                            
+                            const localHash = (await $`git rev-parse HEAD`.quiet()).stdout.toString().trim();
+                            const remoteHash = (await $`git rev-parse origin/${currentBranch}`.quiet()).stdout.toString().trim();
+
+                            if (localHash !== remoteHash) {
+                                BunLogModule({
+                                    message: `Changes detected (Local: ${localHash.slice(0, 7)} -> Remote: ${remoteHash.slice(0, 7)}). Initiating upgrade...`,
+                                    type: "info",
+                                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                });
+
+                                // Kill in-flight rebuild if active
+                                if (rebuildProcess) {
+                                    BunLogModule({
+                                        message: "Killing in-flight rebuild to prioritize new changes...",
+                                        type: "warn",
+                                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                    });
+                                    rebuildProcess.kill();
+                                    rebuildProcess = null;
+                                }
+
+                                // Sync Git (Atomic-ish)
+                                BunLogModule({
+                                    message: `Syncing with origin/${currentBranch}...`,
+                                    type: "info",
+                                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                });
+
+                                const pull = await $`git pull --rebase --recurse-submodules origin ${currentBranch}`.nothrow();
+                                if (pull.exitCode !== 0) {
+                                    BunLogModule({
+                                        message: `Git pull failed: ${pull.stderr.toString()}`,
+                                        type: "error",
+                                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                    });
+                                    continue;
+                                }
+
+                                await $`git submodule update --init --recursive`.nothrow();
+
+                                // Start Rebuild (Background)
+                                BunLogModule({
+                                    message: `Starting Upgrade Rebuild (${upgradeCommand})...`,
+                                    type: "info",
+                                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                });
+
+                                rebuildProcess = Bun.spawn(["bun", "run", upgradeCommand], {
+                                    stdout: "inherit",
+                                    stderr: "inherit",
+                                    onExit: (proc, exitCode, signalCode, error) => {
+                                        // Clear process logic (only if it hasn't been replaced by a new one already, though kill() handles that)
+                                        if (rebuildProcess === proc) {
+                                            rebuildProcess = null;
+                                        }
+
+                                        if (exitCode === 0) {
+                                            BunLogModule({
+                                                message: "Upgrade Rebuild completed successfully.",
+                                                type: "success",
+                                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                            });
+                                        } else if (signalCode) {
+                                            BunLogModule({
+                                                message: `Upgrade Rebuild terminated (Signal: ${signalCode})`,
+                                                type: "warn",
+                                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                            });
+                                        } else {
+                                            BunLogModule({
+                                                message: `Upgrade Rebuild failed (Exit Code: ${exitCode})`,
+                                                type: "error",
+                                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                            });
+                                        }
+                                    },
+                                });
+                            }
+                        } catch (error) {
+                            BunLogModule({
+                                message: `Watch error: ${error instanceof Error ? error.message : String(error)}`,
+                                type: "error",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                            await Bun.sleep(5000);
+                        }
                     }
+                } else {
+                    BunLogModule({
+                        message: `Starting one-time auto-upgrade on current branch for ${isCore ? "core services only" : "all services"}`,
+                        data: { currentBranch },
+                        type: "info",
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
 
-                    BunLogModule({
-                        message: `Auto-upgrade completed successfully for ${isCore ? "core services only" : "all services"}`,
-                        type: "success",
-                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                        debug: cliConfiguration.VRCA_CLI_DEBUG,
-                    });
-                } catch (error) {
-                    BunLogModule({
-                        message: `Auto-upgrade failed for ${isCore ? "core services only" : "all services"}: ${error instanceof Error ? error.message : String(error)}`,
-                        type: "error",
-                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                        debug: cliConfiguration.VRCA_CLI_DEBUG,
-                    });
-                    throw error;
+                    await $`git fetch --all --prune --recurse-submodules`.nothrow();
+
+                    try {
+                        BunLogModule({
+                            message: `Updating current branch '${currentBranch}' for ${isCore ? "core services only" : "all services"}...`,
+                            type: "info",
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+
+                        // Update submodules recursively
+                        await $`git submodule update --init --recursive`.nothrow();
+
+                        // Fetch and pull current branch with recursive submodules
+                        const pull =
+                            await $`git pull --rebase --recurse-submodules origin ${currentBranch}`
+                                .nothrow()
+                                .quiet();
+                        if (pull.exitCode !== 0)
+                            throw new Error(
+                                `pull failed: ${pull.stderr.toString()}`,
+                            );
+
+                        BunLogModule({
+                            message: `Rebuilding ${isCore ? "core services only" : "all services"}...`,
+                            type: "info",
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+                        const result =
+                            await $`bun run ${upgradeCommand}`.nothrow();
+                        if (result.exitCode !== 0) {
+                            throw new Error(
+                                `rebuild failed: ${result.stderr.toString()}`,
+                            );
+                        }
+
+                        BunLogModule({
+                            message: `Auto-upgrade completed successfully for ${isCore ? "core services only" : "all services"}`,
+                            type: "success",
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+                    } catch (error) {
+                        BunLogModule({
+                            message: `Auto-upgrade failed for ${isCore ? "core services only" : "all services"}: ${error instanceof Error ? error.message : String(error)}`,
+                            type: "error",
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+                        throw error;
+                    }
                 }
                 break;
             }

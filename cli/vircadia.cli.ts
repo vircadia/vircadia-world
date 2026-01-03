@@ -34,6 +34,11 @@ const MIGRATION_DIR = path.join(
     "./database/migration",
 );
 
+const PROJECT_ROOT = path.join(
+    dirname(fileURLToPath(import.meta.url)),
+    "../",
+);
+
 // Environment Variable Management Module
 export namespace EnvManager {
     const CLI_ENV_FILE_PATH = path.join(
@@ -4131,7 +4136,8 @@ if (import.meta.main) {
                             if (!changesDetected && isTrackSubmodules) {
                                 try {
                                     // Get all submodule paths
-                                    const submodulePaths = (await $`git config --file .gitmodules --name-only --get-regexp path`.quiet().nothrow()).stdout.toString().trim().split('\n');
+                                    const gitmodulesPath = path.join(PROJECT_ROOT, ".gitmodules");
+                                    const submodulePaths = (await $`git config --file ${gitmodulesPath} --name-only --get-regexp path`.quiet().nothrow()).stdout.toString().trim().split('\n');
                                     
                                     for (const configKey of submodulePaths) {
                                         if (!configKey) continue;
@@ -4139,29 +4145,33 @@ if (import.meta.main) {
                                         // we need the name "sdk/vircadia-world-sdk-ts" to get the branch
                                         const submoduleName = configKey.replace(/^submodule\./, '').replace(/\.path$/, '');
                                         
-                                        const path = (await $`git config --file .gitmodules --get ${configKey}`.quiet().nothrow()).stdout.toString().trim();
+                                        const relativePath = (await $`git config --file ${gitmodulesPath} --get ${configKey}`.quiet().nothrow()).stdout.toString().trim();
+                                        const fullPath = path.join(PROJECT_ROOT, relativePath);
                                         
                                         // Get tracked branch from .gitmodules, default to 'master' (or whatever git defaults to, but we need explicit check)
                                         // If 'branch' key key is missing, standard git behavior is to track the commit recorded in superproject.
                                         // But here we want to track a branch if configured. 
-                                        const branchCmd = await $`git config --file .gitmodules --get submodule.${submoduleName}.branch`.quiet().nothrow();
+                                        const branchCmd = await $`git config --file ${gitmodulesPath} --get submodule.${submoduleName}.branch`.quiet().nothrow();
                                         const trackedBranch = branchCmd.stdout.toString().trim() || 'master'; // defaulting to master if not set, typical for floating.
                                         
-                                        if (path && await Bun.file(path).exists()) {
+                                        if (relativePath && existsSync(fullPath)) {
                                             // Check inside the submodule
                                             // We need to fetch inside the submodule to know origin status
                                             // git fetch --recurse-submodules in superproject should have fetched submodules too? 
                                             // Yes, if they are active.
                                             
+                                            // Explicitly fetch the tracked branch inside the submodule to ensure we have the latest remote ref
+                                            await $`git -C ${fullPath} fetch origin ${trackedBranch}`.quiet().nothrow();
+
                                             // Get submodule local HEAD
-                                            const subLocal = (await $`git -C ${path} rev-parse HEAD`.quiet().nothrow()).stdout.toString().trim();
+                                            const subLocal = (await $`git -C ${fullPath} rev-parse HEAD`.quiet().nothrow()).stdout.toString().trim();
                                             // Get submodule remote branch HEAD
                                             // Assuming remote is named 'origin'
-                                            const subRemote = (await $`git -C ${path} rev-parse origin/${trackedBranch}`.quiet().nothrow()).stdout.toString().trim();
+                                            const subRemote = (await $`git -C ${fullPath} rev-parse origin/${trackedBranch}`.quiet().nothrow()).stdout.toString().trim();
 
                                             if (subLocal && subRemote && subLocal !== subRemote) {
                                                 changesDetected = true;
-                                                changeMessage = `Submodule update detected in ${path} (Local: ${subLocal.slice(0,7)} -> Remote: ${subRemote.slice(0,7)} on ${trackedBranch}).`;
+                                                changeMessage = `Submodule update detected in ${relativePath} (Local: ${subLocal.slice(0,7)} -> Remote: ${subRemote.slice(0,7)} on ${trackedBranch}).`;
                                                 break;
                                             }
                                         }

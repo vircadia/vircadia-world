@@ -4102,7 +4102,6 @@ if (import.meta.main) {
             case "project:auto-upgrade": {
                 const isCore = additionalArgs.includes("--core");
                 const isWatch = additionalArgs.includes("--watch");
-                const isTrackSubmodules = additionalArgs.includes("--track-submodules");
 
                 const result = await $`git rev-parse --abbrev-ref HEAD`;
                 const currentBranch = result.stdout.toString().trim();
@@ -4110,7 +4109,7 @@ if (import.meta.main) {
 
                 if (isWatch) {
                     BunLogModule({
-                        message: `Starting auto-upgrade watcher on branch '${currentBranch}'${isTrackSubmodules ? " (tracking submodules aggressively)" : ""}...`,
+                        message: `Starting auto-upgrade watcher on branch '${currentBranch}'...`,
                         type: "info",
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -4131,56 +4130,6 @@ if (import.meta.main) {
 
                             let changesDetected = localHash !== remoteHash;
                             let changeMessage = `Changes detected (Local: ${localHash.slice(0, 7)} -> Remote: ${remoteHash.slice(0, 7)}).`;
-
-                            // Aggressive Submodule Tracking
-                            if (!changesDetected && isTrackSubmodules) {
-                                try {
-                                    // Get all submodule paths
-                                    const gitmodulesPath = path.join(PROJECT_ROOT, ".gitmodules");
-                                    const submodulePaths = (await $`git config --file ${gitmodulesPath} --name-only --get-regexp path`.quiet().nothrow()).stdout.toString().trim().split('\n');
-                                    
-                                    for (const configKey of submodulePaths) {
-                                        if (!configKey) continue;
-                                        // configKey is like "submodule.sdk/vircadia-world-sdk-ts.path"
-                                        // we need the name "sdk/vircadia-world-sdk-ts" to get the branch
-                                        const submoduleName = configKey.replace(/^submodule\./, '').replace(/\.path$/, '');
-                                        
-                                        const relativePath = (await $`git config --file ${gitmodulesPath} --get ${configKey}`.quiet().nothrow()).stdout.toString().trim();
-                                        const fullPath = path.join(PROJECT_ROOT, relativePath);
-                                        
-                                        // Get tracked branch from .gitmodules, default to 'master' (or whatever git defaults to, but we need explicit check)
-                                        // If 'branch' key key is missing, standard git behavior is to track the commit recorded in superproject.
-                                        // But here we want to track a branch if configured. 
-                                        const branchCmd = await $`git config --file ${gitmodulesPath} --get submodule.${submoduleName}.branch`.quiet().nothrow();
-                                        const trackedBranch = branchCmd.stdout.toString().trim() || 'master'; // defaulting to master if not set, typical for floating.
-                                        
-                                        if (relativePath && existsSync(fullPath)) {
-                                            // Check inside the submodule
-                                            // We need to fetch inside the submodule to know origin status
-                                            // git fetch --recurse-submodules in superproject should have fetched submodules too? 
-                                            // Yes, if they are active.
-                                            
-                                            // Explicitly fetch the tracked branch inside the submodule to ensure we have the latest remote ref
-                                            await $`git -C ${fullPath} fetch origin ${trackedBranch}`.quiet().nothrow();
-
-                                            // Get submodule local HEAD
-                                            const subLocal = (await $`git -C ${fullPath} rev-parse HEAD`.quiet().nothrow()).stdout.toString().trim();
-                                            // Get submodule remote branch HEAD
-                                            // Assuming remote is named 'origin'
-                                            const subRemote = (await $`git -C ${fullPath} rev-parse origin/${trackedBranch}`.quiet().nothrow()).stdout.toString().trim();
-
-                                            if (subLocal && subRemote && subLocal !== subRemote) {
-                                                changesDetected = true;
-                                                changeMessage = `Submodule update detected in ${relativePath} (Local: ${subLocal.slice(0,7)} -> Remote: ${subRemote.slice(0,7)} on ${trackedBranch}).`;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                } catch (err) {
-                                    // Non-fatal, just log debug
-                                    // console.error("Error checking submodules:", err);
-                                }
-                            }
 
                             if (changesDetected) {
                                 BunLogModule({
@@ -4210,7 +4159,9 @@ if (import.meta.main) {
                                     debug: cliConfiguration.VRCA_CLI_DEBUG,
                                 });
 
-                                const pull = await $`git pull --rebase --recurse-submodules origin ${currentBranch}`.nothrow();
+                                // Don't recurse submodules here, otherwise we might fight with the explicit submodule update below
+                                // Actually, user requested to rely on recursive pull:
+                                const pull = await $`git pull --recurse-submodules origin ${currentBranch}`.nothrow();
                                 if (pull.exitCode !== 0) {
                                     BunLogModule({
                                         message: `Git pull failed: ${pull.stderr.toString()}`,
@@ -4219,19 +4170,6 @@ if (import.meta.main) {
                                         debug: cliConfiguration.VRCA_CLI_DEBUG,
                                     });
                                     continue;
-                                }
-
-                                if (isTrackSubmodules) {
-                                     BunLogModule({
-                                        message: `Updating submodules to latest remote...`,
-                                        type: "info",
-                                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                        debug: cliConfiguration.VRCA_CLI_DEBUG,
-                                    });
-                                    // Use --remote to fetch latest from tracked branch
-                                    await $`git submodule update --init --recursive --remote`.nothrow();
-                                } else {
-                                    await $`git submodule update --init --recursive`.nothrow();
                                 }
 
                                 // Start Rebuild (Background)
@@ -4305,16 +4243,9 @@ if (import.meta.main) {
                             debug: cliConfiguration.VRCA_CLI_DEBUG,
                         });
 
-                        // Update submodules recursively
-                        if (isTrackSubmodules) {
-                             await $`git submodule update --init --recursive --remote`.nothrow();
-                        } else {
-                             await $`git submodule update --init --recursive`.nothrow();
-                        }
-
                         // Fetch and pull current branch with recursive submodules
                         const pull =
-                            await $`git pull --rebase --recurse-submodules origin ${currentBranch}`
+                            await $`git pull --recurse-submodules origin ${currentBranch}`
                                 .nothrow()
                                 .quiet();
                         if (pull.exitCode !== 0)

@@ -1,15 +1,4 @@
 <template>
-    <template v-if="isDev && !headless">
-        <v-tooltip bottom>
-            <template v-slot:activator="{ props }">
-                <v-btn v-bind="props" fab small color="info" class="toolbar-btn" :disabled="!scene"
-                    @click="toggleInspector">
-                    <v-icon>{{ isInspectorVisible ? "mdi-file-tree" : "mdi-file-tree-outline" }}</v-icon>
-                </v-btn>
-            </template>
-            <span>Toggle Babylon Inspector (T)</span>
-        </v-tooltip>
-    </template>
 </template>
 
 <script setup lang="ts">

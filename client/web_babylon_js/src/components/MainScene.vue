@@ -62,7 +62,7 @@
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                         'mdi-speedometer-slow'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -97,7 +97,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                     <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="fly">
@@ -133,7 +133,7 @@
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                             'mdi-file-tree-outline'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -881,7 +881,7 @@ const physicsRef = ref<InstanceType<typeof BabylonPhysics> | null>(null);
 
 // Avatar definition is now provided locally instead of DB
 const avatarDefinition: AvatarDefinition = {
-    initialAvatarPosition: { x: 0, y: 22, z: 0 },
+    initialAvatarPosition: { x: 0, y: 32, z: 0 },
     initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
     modelFileName: "babylon.avatar.glb",
     meshPivotPoint: "bottom",
@@ -900,6 +900,8 @@ const avatarDefinition: AvatarDefinition = {
     startFlying: true,
     runSpeedMultiplier: 2.2,
     backWalkMultiplier: 0.6,
+    strafeMultiplier: 2.0, // left/right walk speed multiplier (1.0 = same as forward)
+    strafeRunMultiplier: 1.3, // left/right sprint speed multiplier (1.0 = same as forward sprint)
     // Physics character controller properties (using Babylon.js documented defaults)
     maxCastIterations: 10, // default: 10 - maximum number of raycast per integration step
     keepContactTolerance: 0.1, // default: 0.1 - maximum distance to keep contact

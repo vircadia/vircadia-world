@@ -139,6 +139,8 @@ export type AvatarDefinition = {
     startFlying: boolean;
     runSpeedMultiplier: number;
     backWalkMultiplier: number;
+    strafeMultiplier: number;
+    strafeRunMultiplier: number;
     // Physics character controller properties
     maxCastIterations: number;
     keepContactTolerance: number;
@@ -1061,6 +1063,12 @@ onMounted(async () => {
         // Apply backward walking reduction if primarily moving backward
         if (!ks.sprint && moveDirection.z < 0 && Math.abs(moveDirection.z) >= Math.abs(moveDirection.x)) {
             speedMultiplier *= effectiveAvatarDef.value.backWalkMultiplier;
+        }
+        // Apply strafe speed adjustment if primarily moving left or right
+        if (Math.abs(moveDirection.x) > Math.abs(moveDirection.z)) {
+            speedMultiplier *= ks.sprint
+                ? effectiveAvatarDef.value.strafeRunMultiplier
+                : effectiveAvatarDef.value.strafeMultiplier;
         }
         const currentSpeed = walkSpeed.value * speedMultiplier;
 

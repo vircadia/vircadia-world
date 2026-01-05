@@ -1,4 +1,5 @@
 import { fileURLToPath, URL } from "node:url";
+import { execSync } from "node:child_process";
 import vue from "@vitejs/plugin-vue";
 import vueJsx from "@vitejs/plugin-vue-jsx";
 import { defineConfig } from "vite";
@@ -11,6 +12,9 @@ import { compression } from "vite-plugin-compression2";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 import { clientBrowserConfiguration } from "../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 import packageJson from "./package.json";
+
+// Get git commit hash
+const commitHash = execSync("git rev-parse --short HEAD").toString().trim();
 
 // https://vite.dev/config/
 export default defineConfig(({ command }) => {
@@ -99,6 +103,7 @@ export default defineConfig(({ command }) => {
         define: {
             __APP_VERSION__: JSON.stringify(packageJson.version || "0.0.0"),
             __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+            __COMMIT_HASH__: JSON.stringify(commitHash),
             __APP_TITLE__: JSON.stringify(
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE,
             ),

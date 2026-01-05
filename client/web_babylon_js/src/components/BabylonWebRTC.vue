@@ -19,15 +19,15 @@
 
                 <div class="text-subtitle-2 mb-2">Microphone Settings</div>
                 <div class="d-flex align-center flex-wrap gap-2">
-                    <v-switch :model-value="echoCancellation"
-                        @update:model-value="emit('update:echoCancellation', $event)" label="Echo Cancellation"
-                        color="primary" hide-details density="compact" class="mr-4" />
-                    <v-switch :model-value="noiseSuppression"
-                        @update:model-value="emit('update:noiseSuppression', $event)" label="Noise Suppression"
-                        color="primary" hide-details density="compact" class="mr-4" />
-                    <v-switch :model-value="autoGainControl"
-                        @update:model-value="emit('update:autoGainControl', $event)" label="Auto Gain Control"
-                        color="primary" hide-details density="compact" />
+                    <v-switch :model-value="props.echoCancellation"
+                        @update:model-value="emit('update:echoCancellation', !!$event)" label="Echo Cancellation"
+                        :disabled="!audioEnabled" color="primary" hide-details density="compact" class="mr-4" />
+                    <v-switch :model-value="props.noiseSuppression"
+                        @update:model-value="emit('update:noiseSuppression', !!$event)" label="Noise Suppression"
+                        :disabled="!audioEnabled" color="primary" hide-details density="compact" class="mr-4" />
+                    <v-switch :model-value="props.autoGainControl"
+                        @update:model-value="emit('update:autoGainControl', !!$event)" label="Auto Gain Control"
+                        :disabled="!audioEnabled" color="primary" hide-details density="compact" />
                 </div>
 
                 <v-divider class="my-4" />
@@ -328,10 +328,10 @@
                                                     spatialAudio.getPeerSpatialDebug(peerId)?.distanceModel }}</v-chip>
                                                 <span class="mr-2 text-xs">Ref: {{
                                                     spatialAudio.getPeerSpatialDebug(peerId)?.refDistance
-                                                }}</span>
+                                                    }}</span>
                                                 <span class="mr-2 text-xs">Max: {{
                                                     spatialAudio.getPeerSpatialDebug(peerId)?.maxDistance
-                                                }}</span>
+                                                    }}</span>
                                                 <span class="text-xs">Roll: {{
                                                     spatialAudio.getPeerSpatialDebug(peerId)?.rolloffFactor }}</span>
                                             </div>
@@ -384,7 +384,7 @@
                                                 :color="getAudioLevelColor(peerId)" height="8" rounded
                                                 style="min-width: 100px" class="mr-2" />
                                             <span class="text-caption">{{ getPeerAudioLevel(peerId).toFixed(1)
-                                            }}%</span>
+                                                }}%</span>
                                         </div>
                                     </v-list-item-title>
                                 </v-list-item>
@@ -519,6 +519,7 @@ import {
 } from "vue";
 import { z } from "zod";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+import { useWebRTCSpatialAudio } from "@/composables/useWebRTCSpatialAudio";
 
 // TODO: Make it so that we don't start negotiation unless we have all the tracks, or use fake ones to start (ideal), I think it gets stuck if no audio access initially.
 
@@ -908,509 +909,12 @@ const myCameraOrientationRef = computed(
 );
 
 // Spatial Audio (inlined)
-function useWebRTCSpatialAudio(
-    options: SpatialAudioOptions = {},
-    sources?: {
-        myPosition?: Ref<AvatarPositionData | null>;
-        myCameraOrientation?: Ref<{
-            alpha: number;
-            beta: number;
-            radius: number;
-        } | null>;
-        otherPositions?: Ref<Record<string, AvatarPositionData>>;
-    },
-) {
-    // Audio context and nodes
-    const audioContext = ref<AudioContext | null>(null);
-    const peerAudioNodes = ref(new Map<string, PeerAudioNode>());
-    const isInitialized = ref(false);
 
-    // Debug Refs
-    const listenerDebug = ref<ListenerDebugInfo | null>(null);
-    const peerSpatialDebug = ref(new Map<string, PeerSpatialDebugInfo>());
-
-
-    // Default spatial audio settings
-    const settings = {
-        refDistance: options.refDistance ?? 1,
-        maxDistance: options.maxDistance ?? 50,
-        rolloffFactor: options.rolloffFactor ?? 1,
-        coneInnerAngle: options.coneInnerAngle ?? 360,
-        coneOuterAngle: options.coneOuterAngle ?? 360,
-        panningModel: (options.panningModel ?? "HRTF") as PanningModelType,
-        distanceModel: (options.distanceModel ??
-            "inverse") as DistanceModelType,
-    };
-
-    // Initialize audio context
-    function initialize() {
-        if (isInitialized.value) return;
-
-        try {
-            audioContext.value = new AudioContext();
-            isInitialized.value = true;
-
-            // Set initial listener position
-            updateListenerPosition();
-
-            // Resume audio context if suspended (due to browser autoplay policies)
-            if (audioContext.value.state === "suspended") {
-                audioContext.value.resume().catch((error) => {
-                    console.error(
-                        "[SpatialAudio] Failed to resume audio context:",
-                        error,
-                    );
-                });
-            }
-
-            // Monitor audio context state changes
-            audioContext.value.onstatechange = () => {
-                console.log(
-                    "[SpatialAudio] Audio context state changed to:",
-                    audioContext.value?.state,
-                );
-            };
-        } catch (error) {
-            console.error(
-                "[SpatialAudio] Failed to initialize audio context:",
-                error,
-            );
-        }
-    }
-
-    // Calculate forward vector from camera orientation (spherical to cartesian)
-    function calculateForwardVector(cameraOrientation: {
-        alpha: number;
-        beta: number;
-        radius: number;
-    }) {
-        const { alpha, beta } = cameraOrientation;
-        const x = Math.sin(alpha) * Math.sin(beta);
-        const y = -Math.cos(beta);
-        const z = Math.cos(alpha) * Math.sin(beta);
-        return { x, y, z };
-    }
-
-    // Update listener (my avatar) position and orientation
-    function updateListenerPosition() {
-        if (!audioContext.value) return;
-
-        const pos = sources?.myPosition?.value ?? null;
-        const cam = sources?.myCameraOrientation?.value ?? null;
-        if (!pos || !cam) return;
-
-        type ListenerLike = AudioListener & {
-            positionX?: AudioParam;
-            positionY?: AudioParam;
-            positionZ?: AudioParam;
-            forwardX?: AudioParam;
-            forwardY?: AudioParam;
-            forwardZ?: AudioParam;
-            upX?: AudioParam;
-            upY?: AudioParam;
-            upZ?: AudioParam;
-            setPosition?: (x: number, y: number, z: number) => void;
-            setOrientation?: (
-                fx: number,
-                fy: number,
-                fz: number,
-                ux: number,
-                uy: number,
-                uz: number,
-            ) => void;
-        };
-        const listener = audioContext.value.listener as ListenerLike;
-
-        try {
-            // Set position
-            if (listener.positionX) {
-                listener.positionX.setValueAtTime(
-                    pos.x,
-                    audioContext.value.currentTime,
-                );
-                listener.positionY.setValueAtTime(
-                    pos.y,
-                    audioContext.value.currentTime,
-                );
-                listener.positionZ.setValueAtTime(
-                    pos.z,
-                    audioContext.value.currentTime,
-                );
-            } else {
-                listener.setPosition?.(pos.x, pos.y, pos.z);
-            }
-
-            // Calculate forward and up vectors from camera orientation
-            const forward = calculateForwardVector(cam);
-            const up = { x: 0, y: 1, z: 0 }; // Y-up coordinate system
-
-            if (listener.forwardX) {
-                listener.forwardX.setValueAtTime(
-                    forward.x,
-                    audioContext.value.currentTime,
-                );
-                listener.forwardY.setValueAtTime(
-                    forward.y,
-                    audioContext.value.currentTime,
-                );
-                listener.forwardZ.setValueAtTime(
-                    forward.z,
-                    audioContext.value.currentTime,
-                );
-                listener.upX.setValueAtTime(
-                    up.x,
-                    audioContext.value.currentTime,
-                );
-                listener.upY.setValueAtTime(
-                    up.y,
-                    audioContext.value.currentTime,
-                );
-                listener.upZ.setValueAtTime(
-                    up.z,
-                    audioContext.value.currentTime,
-                );
-            } else {
-                listener.setOrientation?.(
-                    forward.x,
-                    forward.y,
-                    forward.z,
-                    up.x,
-                    up.y,
-                    up.z,
-                );
-            }
-            // Update debug info
-            listenerDebug.value = {
-                position: { ...pos },
-                forward: { ...forward },
-                up: { ...up },
-                state: audioContext.value.state
-            };
-        } catch (error) {
-            console.error(
-                "[SpatialAudio] Failed to update listener position:",
-                error,
-            );
-        }
-    }
-
-    // Create spatial audio node for a peer
-    function createPeerAudioNode(
-        peerId: string,
-        remoteStream: MediaStream,
-        initialVolume = 100,
-    ): HTMLAudioElement {
-        if (!audioContext.value) {
-            throw new Error("[SpatialAudio] Audio context not initialized");
-        }
-
-        // Validate stream
-        const audioTracks = remoteStream.getAudioTracks();
-        if (audioTracks.length === 0) {
-            console.warn(
-                `[SpatialAudio] No audio tracks in remote stream for peer ${peerId.substring(0, 8)}...`,
-            );
-        }
-
-        try {
-            // Create audio element
-            const audio = new Audio();
-            audio.srcObject = remoteStream;
-            audio.autoplay = true;
-            audio.style.display = "none"; // Hidden
-            // CRITICAL: Mute the audio element to prevent double playback
-            // Audio should only play through Web Audio API for spatial processing
-            audio.muted = true;
-            audio.volume = 0;
-            document.body.appendChild(audio);
-
-            // Create Web Audio nodes
-            const source =
-                audioContext.value.createMediaStreamSource(remoteStream);
-            const panner = audioContext.value.createPanner();
-            const gain = audioContext.value.createGain();
-
-            // Configure panner
-            panner.panningModel = settings.panningModel;
-            panner.distanceModel = settings.distanceModel;
-            panner.refDistance = settings.refDistance;
-            panner.maxDistance = settings.maxDistance;
-            panner.rolloffFactor = settings.rolloffFactor;
-            panner.coneInnerAngle = settings.coneInnerAngle;
-            panner.coneOuterAngle = settings.coneOuterAngle;
-            panner.coneOuterGain = 0.3;
-
-            // Set initial volume
-            gain.gain.value = initialVolume / 100;
-
-            // Connect nodes: source -> panner -> gain -> destination
-            source.connect(panner);
-            panner.connect(gain);
-            gain.connect(audioContext.value.destination);
-
-            // Store node references
-            const nodeInfo: PeerAudioNode = {
-                audioElement: audio,
-                source,
-                panner,
-                gain,
-            };
-            peerAudioNodes.value.set(peerId, nodeInfo);
-
-            // Set initial position
-            updatePeerPosition(peerId);
-
-            // Try to play (may be blocked by autoplay policy)
-            audio.play().catch((error) => {
-                console.warn(
-                    `[SpatialAudio] Audio autoplay blocked for peer ${peerId.substring(0, 8)}...:`,
-                    error,
-                );
-                // This is expected in most browsers, the Web Audio API should still work
-            });
-
-            return audio;
-        } catch (error) {
-            console.error(
-                `[{SpatialAudio}] Failed to create audio node for peer ${peerId}:`,
-                error,
-            );
-            throw error;
-        }
-    }
-
-    // Update peer audio position based on their avatar metadata
-    function updatePeerPosition(peerId: string) {
-        const nodeInfo = peerAudioNodes.value.get(peerId);
-        if (!nodeInfo || !audioContext.value) return;
-
-        const otherPositions = sources?.otherPositions?.value;
-        const pos = otherPositions ? otherPositions[peerId] : undefined;
-        if (!pos) return;
-        type PannerLike = PannerNode & {
-            positionX?: AudioParam;
-            positionY?: AudioParam;
-            positionZ?: AudioParam;
-            setPosition?: (x: number, y: number, z: number) => void;
-        };
-        const panner = nodeInfo.panner as PannerLike;
-
-        try {
-            if (panner.positionX) {
-                panner.positionX.setValueAtTime(
-                    pos.x,
-                    audioContext.value.currentTime,
-                );
-                panner.positionY.setValueAtTime(
-                    pos.y,
-                    audioContext.value.currentTime,
-                );
-                panner.positionZ.setValueAtTime(
-                    pos.z,
-                    audioContext.value.currentTime,
-                );
-            } else {
-                panner.setPosition?.(pos.x, pos.y, pos.z);
-            }
-
-            // Update debug info
-            const distance = Math.sqrt(
-                Math.pow(pos.x - (listenerDebug.value?.position.x ?? 0), 2) +
-                Math.pow(pos.y - (listenerDebug.value?.position.y ?? 0), 2) +
-                Math.pow(pos.z - (listenerDebug.value?.position.z ?? 0), 2)
-            );
-
-            peerSpatialDebug.value.set(peerId, {
-                position: { ...pos },
-                panningModel: panner.panningModel,
-                distanceModel: panner.distanceModel,
-                refDistance: panner.refDistance,
-                maxDistance: panner.maxDistance,
-                rolloffFactor: panner.rolloffFactor,
-                coneInnerAngle: panner.coneInnerAngle,
-                coneOuterAngle: panner.coneOuterAngle,
-                distance
-            });
-
-        } catch (error) {
-            console.error(
-                `[SpatialAudio] Failed to update position for peer ${peerId}:`,
-                error,
-            );
-        }
-    }
-
-    // Update all peer positions (useful when many peers change at once)
-    function updateAllPeerPositions() {
-        for (const peerId of peerAudioNodes.value.keys()) {
-            updatePeerPosition(peerId);
-        }
-    }
-
-    // Set peer volume
-    function setPeerVolume(peerId: string, volume: number) {
-        const nodeInfo = peerAudioNodes.value.get(peerId);
-        if (!nodeInfo || !audioContext.value) return;
-        try {
-            nodeInfo.gain.gain.setValueAtTime(
-                volume / 100,
-                audioContext.value.currentTime,
-            );
-        } catch (error) {
-            console.error(
-                `[SpatialAudio] Failed to set volume for peer ${peerId}:`,
-                error,
-            );
-        }
-    }
-
-    // Get peer volume
-    function getPeerVolume(peerId: string): number {
-        const nodeInfo = peerAudioNodes.value.get(peerId);
-        if (!nodeInfo) return 100;
-        return Math.round(nodeInfo.gain.gain.value * 100);
-    }
-
-    // Remove peer audio node and clean up
-    function removePeerAudio(peerId: string) {
-        const nodeInfo = peerAudioNodes.value.get(peerId);
-        if (!nodeInfo) return;
-        try {
-            // Disconnect nodes
-            nodeInfo.source.disconnect();
-            nodeInfo.panner.disconnect();
-            nodeInfo.gain.disconnect();
-
-            // Remove and clean up audio element
-            if (nodeInfo.audioElement.parentNode) {
-                nodeInfo.audioElement.parentNode.removeChild(
-                    nodeInfo.audioElement,
-                );
-            }
-            nodeInfo.audioElement.pause();
-            nodeInfo.audioElement.srcObject = null;
-
-            // Remove from map
-            peerAudioNodes.value.delete(peerId);
-        } catch (error) {
-            console.error(
-                `[SpatialAudio] Error cleaning up audio node for peer ${peerId}:`,
-                error,
-            );
-        }
-    }
-
-    // Cleanup all resources
-    function cleanup() {
-        for (const peerId of peerAudioNodes.value.keys()) {
-            removePeerAudio(peerId);
-        }
-        if (audioContext.value) {
-            audioContext.value.close().catch((error) => {
-                console.error(
-                    "[SpatialAudio] Error closing audio context:",
-                    error,
-                );
-            });
-            audioContext.value = null;
-        }
-        isInitialized.value = false;
-    }
-
-    // Resume audio context on user interaction (needed for browser autoplay policies)
-    async function resumeContext() {
-        if (!audioContext.value) {
-            console.warn("[SpatialAudio] No audio context to resume");
-            return false;
-        }
-        try {
-            if (audioContext.value.state === "suspended") {
-                await audioContext.value.resume();
-                return true;
-            }
-            return audioContext.value.state === "running";
-        } catch (error) {
-            console.error(
-                "[SpatialAudio] Failed to resume audio context:",
-                error,
-            );
-            return false;
-        }
-    }
-
-    // Watchers
-    if (sources?.myPosition) {
-        watch(sources.myPosition, () => updateListenerPosition(), {
-            deep: true,
-        });
-    }
-    if (sources?.myCameraOrientation) {
-        watch(sources.myCameraOrientation, () => updateListenerPosition(), {
-            deep: true,
-        });
-    }
-    if (sources?.otherPositions) {
-        watch(sources.otherPositions, () => updateAllPeerPositions(), {
-            deep: true,
-        });
-    }
-
-    // Computed helpers
-    const activePeerCount = computed(() => peerAudioNodes.value.size);
-    const isReady = computed(() => isInitialized.value && !!audioContext.value);
-
-    // Expose context and nodes for analysis
-    function getAudioContext() {
-        return audioContext.value;
-    }
-    function getPeerNode(peerId: string) {
-        return peerAudioNodes.value.get(peerId);
-    }
-
-    return {
-        // State
-        isInitialized: isReady,
-        activePeerCount,
-
-        // Core functions
-        initialize,
-        cleanup,
-
-        // Peer management
-        createPeerAudioNode,
-        removePeerAudio,
-        updatePeerPosition,
-        updateAllPeerPositions,
-
-        // Volume control
-        setPeerVolume,
-        getPeerVolume,
-
-        // Manual position updates
-        updateListenerPosition,
-
-        // Settings
-        settings,
-
-        // Resume context
-        resumeContext,
-
-        // Analysis helpers
-        getAudioContext,
-        getPeerNode,
-
-        // Debug
-        listenerDebug,
-        peerSpatialDebug,
-        getPeerSpatialDebug: (peerId: string) => peerSpatialDebug.value.get(peerId),
-    };
-
-}
 
 // Spatial Audio Instance
 const spatialAudio = useWebRTCSpatialAudio(
     {
-        refDistance: 1,
+        refDistance: 5,
         maxDistance: 50,
         rolloffFactor: 1,
         panningModel: "HRTF",
@@ -1973,9 +1477,9 @@ async function initLocalMedia() {
         } else {
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false,
                 },
                 video: false,
             });
@@ -2503,6 +2007,8 @@ watch(() => props.injectedLocalStream, async (stream) => {
         emit('update:localStreamActive', true);
         const micTrack = stream.getAudioTracks()[0] || null;
         if (!micTrack) return;
+        // Ensure new track inherits current enabled state
+        micTrack.enabled = audioEnabled.value;
         for (const sender of getAudioSenderList()) {
             await sender.replaceTrack(micTrack);
         }

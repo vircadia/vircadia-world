@@ -18,7 +18,37 @@ export interface PeerAudioNode {
     gain: GainNode;
 }
 
-export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
+// Interfaces for Debugging
+export interface ListenerDebugInfo {
+    position: { x: number; y: number; z: number };
+    forward: { x: number; y: number; z: number };
+    up: { x: number; y: number; z: number };
+    state: string;
+}
+
+export interface PeerSpatialDebugInfo {
+    position: { x: number; y: number; z: number };
+    panningModel: PanningModelType;
+    distanceModel: DistanceModelType;
+    refDistance: number;
+    maxDistance: number;
+    rolloffFactor: number;
+    coneInnerAngle: number;
+    coneOuterAngle: number;
+    distance: number;
+}
+
+// Helper types for reactive sources
+export interface SpatialAudioSources {
+    myPosition?: Ref<{ x: number; y: number; z: number } | null>;
+    myCameraOrientation?: Ref<{ alpha: number; beta: number; radius: number } | null>;
+    otherPositions?: Ref<Record<string, { x: number; y: number; z: number }>>;
+}
+
+export function useWebRTCSpatialAudio(
+    options: SpatialAudioOptions = {},
+    sources?: SpatialAudioSources
+) {
     const appStore = useAppStore();
 
     // Audio context and nodes
@@ -26,15 +56,20 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
     const peerAudioNodes = ref(new Map<string, PeerAudioNode>());
     const isInitialized = ref(false);
 
+    // Debug Refs
+    const listenerDebug = ref<ListenerDebugInfo | null>(null);
+    const peerSpatialDebug = ref(new Map<string, PeerSpatialDebugInfo>());
+
     // Default spatial audio settings
+    // Updated defaults: refDistance 5 for better falloff, HRTF for better spatialization
     const settings = {
-        refDistance: options.refDistance ?? 1,
-        maxDistance: options.maxDistance ?? 50,
+        refDistance: options.refDistance ?? 5,
+        maxDistance: options.maxDistance ?? 100,
         rolloffFactor: options.rolloffFactor ?? 1,
         coneInnerAngle: options.coneInnerAngle ?? 360,
         coneOuterAngle: options.coneOuterAngle ?? 360,
-        panningModel: options.panningModel ?? "HRTF",
-        distanceModel: options.distanceModel ?? "inverse",
+        panningModel: (options.panningModel ?? "HRTF") as PanningModelType,
+        distanceModel: (options.distanceModel ?? "inverse") as DistanceModelType,
     };
 
     // Initialize audio context
@@ -69,6 +104,19 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
                         );
                     });
             }
+
+            // Monitor audio context state changes
+            audioContext.value.onstatechange = () => {
+                console.log(
+                    "[SpatialAudio] Audio context state changed to:",
+                    audioContext.value?.state,
+                );
+                // Update debug state if exists
+                if (listenerDebug.value) {
+                    listenerDebug.value.state = audioContext.value?.state || "unknown";
+                }
+            };
+
         } catch (error) {
             console.error(
                 "[SpatialAudio] Failed to initialize audio context:",
@@ -95,11 +143,30 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
 
     // Update listener (my avatar) position and orientation
     function updateListenerPosition() {
-        if (!audioContext.value || !appStore.myAvatarMetadata) return;
+        if (!audioContext.value) return;
 
-        const listener = audioContext.value.listener;
-        const pos = appStore.myAvatarMetadata.position;
-        const cam = appStore.myAvatarMetadata.cameraOrientation;
+        // Use provided sources or fallback to appStore (legacy support)
+        const pos = sources?.myPosition?.value ?? appStore.myAvatarMetadata?.position;
+        const cam = sources?.myCameraOrientation?.value ?? appStore.myAvatarMetadata?.cameraOrientation;
+
+        if (!pos || !cam) return;
+
+        // Polyfill for types
+        type ListenerLike = AudioListener & {
+            positionX?: AudioParam;
+            positionY?: AudioParam;
+            positionZ?: AudioParam;
+            forwardX?: AudioParam;
+            forwardY?: AudioParam;
+            forwardZ?: AudioParam;
+            upX?: AudioParam;
+            upY?: AudioParam;
+            upZ?: AudioParam;
+            setPosition?: (x: number, y: number, z: number) => void;
+            setOrientation?: (fx: number, fy: number, fz: number, ux: number, uy: number, uz: number) => void;
+        };
+
+        const listener = audioContext.value.listener as ListenerLike;
 
         try {
             // Set position
@@ -119,7 +186,7 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
                 );
             } else {
                 // Fallback for older browsers
-                listener.setPosition(pos.x, pos.y, pos.z);
+                listener.setPosition?.(pos.x, pos.y, pos.z);
             }
 
             // Calculate forward and up vectors from camera orientation
@@ -154,7 +221,7 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
                 );
             } else {
                 // Fallback for older browsers
-                listener.setOrientation(
+                listener.setOrientation?.(
                     forward.x,
                     forward.y,
                     forward.z,
@@ -164,9 +231,14 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
                 );
             }
 
-            console.log(
-                `[SpatialAudio] Updated listener position: (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)}) forward: (${forward.x.toFixed(2)}, ${forward.y.toFixed(2)}, ${forward.z.toFixed(2)})`,
-            );
+            // Update debug info
+            listenerDebug.value = {
+                position: { ...pos },
+                forward: { ...forward },
+                up: { ...up },
+                state: audioContext.value.state
+            };
+
         } catch (error) {
             console.error(
                 "[SpatialAudio] Failed to update listener position:",
@@ -188,6 +260,14 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
         console.log(
             `[SpatialAudio] Creating spatial audio node for peer: ${peerId.substring(0, 8)}...`,
         );
+
+        // Validate stream
+        const audioTracks = remoteStream.getAudioTracks();
+        if (audioTracks.length === 0) {
+            console.warn(
+                `[SpatialAudio] No audio tracks in remote stream for peer ${peerId.substring(0, 8)}...`,
+            );
+        }
 
         try {
             // Create audio element
@@ -265,50 +345,80 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
         const nodeInfo = peerAudioNodes.value.get(peerId);
         if (!nodeInfo || !audioContext.value) return;
 
-        const peerMetadata = appStore.getOtherAvatarMetadata(peerId);
-        if (!peerMetadata) {
-            console.warn(
-                `[SpatialAudio] No metadata found for peer: ${peerId.substring(0, 8)}...`,
-            );
+        let pos: { x: number, y: number, z: number } | undefined;
+
+        if (sources?.otherPositions?.value) {
+            pos = sources.otherPositions.value[peerId];
+        } else {
+            // Fallback to appStore (legacy)
+            const peerMetadata = appStore.getOtherAvatarMetadata(peerId);
+            pos = peerMetadata?.position;
+        }
+
+        if (!pos) {
+             // Only warn occasionally or if verbose to reduce noise
             return;
         }
 
-        const pos = peerMetadata.position;
         const panner = nodeInfo.panner;
 
+        type PannerLike = PannerNode & {
+             positionX?: AudioParam;
+             positionY?: AudioParam;
+             positionZ?: AudioParam;
+             setPosition?: (x: number, y: number, z: number) => void;
+        };
+        const pannerTyped = panner as PannerLike;
+
         try {
-            if (panner.positionX) {
+            if (pannerTyped.positionX) {
                 // Modern Web Audio API
-                panner.positionX.setValueAtTime(
+                pannerTyped.positionX.setValueAtTime(
                     pos.x,
                     audioContext.value.currentTime,
                 );
-                panner.positionY.setValueAtTime(
+                pannerTyped.positionY.setValueAtTime(
                     pos.y,
                     audioContext.value.currentTime,
                 );
-                panner.positionZ.setValueAtTime(
+                pannerTyped.positionZ.setValueAtTime(
                     pos.z,
                     audioContext.value.currentTime,
                 );
             } else {
                 // Fallback for older browsers
-                panner.setPosition(pos.x, pos.y, pos.z);
+                pannerTyped.setPosition?.(pos.x, pos.y, pos.z);
             }
 
-            // Calculate distance for debugging
-            if (appStore.myAvatarMetadata) {
-                const myPos = appStore.myAvatarMetadata.position;
-                const distance = Math.sqrt(
-                    (pos.x - myPos.x) ** 2 +
-                        (pos.y - myPos.y) ** 2 +
-                        (pos.z - myPos.z) ** 2,
-                );
+             // Calculate distance for debugging
+             let myPos: { x: number, y: number, z: number } | undefined;
+             if (listenerDebug.value?.position) {
+                 myPos = listenerDebug.value.position;
+             } else if (appStore.myAvatarMetadata) {
+                 myPos = appStore.myAvatarMetadata.position;
+             }
 
-                console.log(
-                    `[SpatialAudio] Updated peer ${peerId.substring(0, 8)}... position: (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)}) distance: ${distance.toFixed(2)}`,
-                );
-            }
+             if (myPos) {
+                 const distance = Math.sqrt(
+                     (pos.x - myPos.x) ** 2 +
+                     (pos.y - myPos.y) ** 2 +
+                     (pos.z - myPos.z) ** 2,
+                 );
+
+                 // Update debug info
+                 peerSpatialDebug.value.set(peerId, {
+                     position: { ...pos },
+                     panningModel: panner.panningModel,
+                     distanceModel: panner.distanceModel,
+                     refDistance: panner.refDistance,
+                     maxDistance: panner.maxDistance,
+                     rolloffFactor: panner.rolloffFactor,
+                     coneInnerAngle: panner.coneInnerAngle,
+                     coneOuterAngle: panner.coneOuterAngle,
+                     distance
+                 });
+             }
+
         } catch (error) {
             console.error(
                 `[SpatialAudio] Failed to update position for peer ${peerId}:`,
@@ -379,6 +489,7 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
 
             // Remove from map
             peerAudioNodes.value.delete(peerId);
+            peerSpatialDebug.value.delete(peerId);
 
             console.log(
                 `[SpatialAudio] Cleaned up audio node for peer: ${peerId.substring(0, 8)}...`,
@@ -412,6 +523,7 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
         }
 
         isInitialized.value = false;
+        listenerDebug.value = null;
     }
 
     // Resume audio context on user interaction (needed for browser autoplay policies)
@@ -439,29 +551,60 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
         }
     }
 
-    // Watch for my avatar position changes
-    watch(
-        () => appStore.myAvatarMetadata,
-        () => {
-            updateListenerPosition();
-        },
-        { deep: true },
-    );
+    // WATCHERS
 
-    // Watch for other avatar position changes
-    watch(
-        () => appStore.otherAvatarsMetadata,
-        () => {
-            updateAllPeerPositions();
-        },
-        { deep: true },
-    );
+    // Watch for my avatar position changes (Legacy & Source)
+    if (sources?.myPosition) {
+        watch(
+            sources.myPosition,
+            () => { updateListenerPosition(); },
+            { deep: true }
+        );
+    } else {
+        // Legacy watcher on appStore
+        watch(
+            () => appStore.myAvatarMetadata,
+            () => { updateListenerPosition(); },
+            { deep: true },
+        );
+    }
+
+    if (sources?.myCameraOrientation) {
+         watch(
+            sources.myCameraOrientation,
+            () => { updateListenerPosition(); },
+            { deep: true }
+        );
+    }
+
+    // Watch for other avatar position changes (Legacy & Source)
+    if (sources?.otherPositions) {
+        watch(
+            sources.otherPositions,
+            () => { updateAllPeerPositions(); },
+            { deep: true }
+        );
+    } else {
+        watch(
+            () => appStore.otherAvatarsMetadata,
+            () => { updateAllPeerPositions(); },
+            { deep: true },
+        );
+    }
 
     // Computed property to get the number of active spatial audio peers
     const activePeerCount = computed(() => peerAudioNodes.value.size);
 
     // Computed property to check if spatial audio is ready
     const isReady = computed(() => isInitialized.value && !!audioContext.value);
+
+    // Expose context and nodes for analysis (compatible with component)
+    function getAudioContext() {
+        return audioContext.value;
+    }
+    function getPeerNode(peerId: string) {
+        return peerAudioNodes.value.get(peerId);
+    }
 
     return {
         // State
@@ -490,5 +633,12 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
 
         // Resume context
         resumeContext,
+
+        // Debug & Analysis
+        getAudioContext,
+        getPeerNode,
+        listenerDebug,
+        peerSpatialDebug,
+        getPeerSpatialDebug: (peerId: string) => peerSpatialDebug.value.get(peerId),
     };
 }

@@ -45,6 +45,14 @@ const props = defineProps({
         type: Number,
         default: 1.4,
     },
+    maxLength: {
+        type: Number,
+        default: 70,
+    },
+    truncationSuffix: {
+        type: String,
+        default: "...",
+    },
 });
 
 const bubbleMesh = ref<Mesh | null>(null);
@@ -104,7 +112,11 @@ function showMessage(msg: ChatMessage) {
     if (!bubbleMesh.value) createBubble();
     if (!bubbleMesh.value || !messageText.value) return;
 
-    messageText.value.text = msg.text;
+    let text = msg.text;
+    if (text.length > props.maxLength) {
+        text = text.substring(0, props.maxLength) + props.truncationSuffix;
+    }
+    messageText.value.text = text;
     bubbleMesh.value.isVisible = true;
 
     if (timeoutHandle.value) clearTimeout(timeoutHandle.value);

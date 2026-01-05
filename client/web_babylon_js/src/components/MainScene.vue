@@ -62,7 +62,7 @@
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                         'mdi-speedometer-slow'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -97,7 +97,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                     <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="fly">
@@ -133,7 +133,7 @@
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                             'mdi-file-tree-outline'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -753,9 +753,9 @@ const localChatMessages = ref<ChatMessage[]>([]);
 const sttTranscripts = ref<string[]>([]);
 
 // Audio Processing Constraints (defaulted to false to prevent cutting out)
-const micEchoCancellation = useStorage<boolean>("vrca.audio.echoCancellation", true);
-const micNoiseSuppression = useStorage<boolean>("vrca.audio.noiseSuppression", false);
-const micAutoGainControl = useStorage<boolean>("vrca.audio.autoGainControl", false);
+const micEchoCancellation = useStorage<boolean>("vrca.audio.v2.echoCancellation", false);
+const micNoiseSuppression = useStorage<boolean>("vrca.audio.v2.noiseSuppression", false);
+const micAutoGainControl = useStorage<boolean>("vrca.audio.v2.autoGainControl", false);
 
 // We need to change handleChatMessage signature to accept vircadiaWorld
 async function onChatMessage(text: string, vircadiaWorld: any) {

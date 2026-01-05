@@ -16,9 +16,13 @@ const props = defineProps({
 const emit = defineEmits<(e: "update:stream", v: MediaStream | null) => void>();
 
 const stream = ref<MediaStream | null>(null);
+let openMicCounter = 0;
 
 async function openMic(): Promise<void> {
+    const myId = ++openMicCounter;
     await closeMic();
+    if (myId !== openMicCounter) return;
+
     try {
         const constraints: MediaStreamConstraints = {
             audio: {
@@ -30,9 +34,15 @@ async function openMic(): Promise<void> {
             video: false,
         };
         const s = await navigator.mediaDevices.getUserMedia(constraints);
+        if (myId !== openMicCounter) {
+            // Another openMic called while we were waiting; close this stale stream immediately
+            for (const track of s.getTracks()) track.stop();
+            return;
+        }
         stream.value = s;
         emit("update:stream", s);
     } catch (e) {
+        if (myId !== openMicCounter) return;
         console.warn("[BabylonMic] Failed to obtain microphone:", e);
         stream.value = null;
         emit("update:stream", null);

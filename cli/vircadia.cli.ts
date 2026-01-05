@@ -4125,11 +4125,11 @@ if (import.meta.main) {
                             // Check for updates (fetch all tracking branches and submodules)
                             await $`git fetch --all --prune --recurse-submodules`.quiet().nothrow();
                             
-                            const localHash = (await $`git rev-parse HEAD`.quiet()).stdout.toString().trim();
-                            const remoteHash = (await $`git rev-parse origin/${currentBranch}`.quiet()).stdout.toString().trim();
-
-                            let changesDetected = localHash !== remoteHash;
-                            let changeMessage = `Changes detected (Local: ${localHash.slice(0, 7)} -> Remote: ${remoteHash.slice(0, 7)}).`;
+                            // Check if current branch is behind remote
+                            const behindCount = parseInt((await $`git rev-list --count HEAD..origin/${currentBranch}`.quiet()).stdout.toString().trim()) || 0;
+                            
+                            let changesDetected = behindCount > 0;
+                            let changeMessage = `Remote changes detected (${behindCount} commits behind).`;
 
                             if (changesDetected) {
                                 BunLogModule({

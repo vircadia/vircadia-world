@@ -130,6 +130,10 @@ const exitPointerLock = () => {
 const onPointerLockChange = () => {
     const canvas = props.scene?.getEngine().getRenderingCanvas();
     isPointerLocked.value = document.pointerLockElement === canvas;
+    if (!isPointerLocked.value) {
+        keyState.value.mouseLockCameraRotate = false;
+        keyState.value.mouseLockCameraAvatarRotate = false;
+    }
 };
 if (typeof document !== "undefined") {
     document.addEventListener("pointerlockchange", onPointerLockChange);

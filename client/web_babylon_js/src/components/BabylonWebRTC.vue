@@ -30,6 +30,36 @@
                         :disabled="!audioEnabled" color="primary" hide-details density="compact" />
                 </div>
 
+
+                <v-divider class="my-4" />
+
+                <div class="text-subtitle-2 mb-2">Spatial Audio Settings</div>
+                <div class="d-flex align-center flex-wrap gap-2 mb-2">
+                    <v-switch :model-value="spatialAudio.settings.value.spatialEnabled"
+                        @update:model-value="onSpatialEnabledChange" label="Spatial Audio (3D Positioning)"
+                        :disabled="!spatialAudio.isInitialized.value" color="primary" hide-details density="compact"
+                        class="mr-4" />
+                </div>
+                <div class="d-flex align-center mb-2">
+                    <span class="text-caption mr-2">Gain Boost:</span>
+                    <v-slider :model-value="spatialAudio.settings.value.gainBoost"
+                        @update:model-value="onGainBoostChange" :disabled="!spatialAudio.isInitialized.value"
+                        class="flex-grow-1" density="compact" hide-details min="0.5" max="5" step="0.5" thumb-label>
+                        <template v-slot:prepend>
+                            <v-icon size="small">mdi-volume-low</v-icon>
+                        </template>
+                        <template v-slot:append>
+                            <v-icon size="small">mdi-volume-high</v-icon>
+                        </template>
+                    </v-slider>
+                    <span class="ml-2 text-caption" style="min-width: 40px">{{
+                        spatialAudio.settings.value.gainBoost.toFixed(1) }}x</span>
+                </div>
+                <div class="text-caption text-grey mb-2">
+                    Distance units: meters (refDistance: {{ spatialAudio.settings.value.refDistance }}m, rolloff: {{
+                        spatialAudio.settings.value.rolloffFactor }})
+                </div>
+
                 <v-divider class="my-4" />
 
                 <div class="text-subtitle-2 mb-2">My Spatial Audio Listener</div>
@@ -558,6 +588,12 @@ interface Props {
     echoCancellation?: boolean;
     noiseSuppression?: boolean;
     autoGainControl?: boolean;
+    // Spatial Audio Settings
+    spatialRefDistance?: number;
+    spatialRolloffFactor?: number;
+    spatialMaxDistance?: number;
+    spatialPanningModel?: PanningModelType;
+    spatialDistanceModel?: DistanceModelType;
 }
 
 const emit = defineEmits<{
@@ -581,9 +617,21 @@ const emit = defineEmits<{
     "update:echoCancellation": [value: boolean];
     "update:noiseSuppression": [value: boolean];
     "update:autoGainControl": [value: boolean];
+    // Spatial Audio Settings (optional sync back if we add UI for them later)
+    "update:spatialRefDistance": [value: number];
+    "update:spatialRolloffFactor": [value: number];
+    "update:spatialMaxDistance": [value: number];
+    "update:spatialPanningModel": [value: PanningModelType];
+    "update:spatialDistanceModel": [value: DistanceModelType];
 }>();
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+    spatialRefDistance: 5,
+    spatialRolloffFactor: 0.5, // Less aggressive falloff than default (1.0)
+    spatialMaxDistance: 10000,
+    spatialPanningModel: "HRTF",
+    spatialDistanceModel: "inverse",
+});
 const dialogVisible = computed({
     get: () => props.modelValue ?? false,
     set: (value: boolean) => emit("update:modelValue", value),
@@ -914,17 +962,21 @@ const myCameraOrientationRef = computed(
 // Spatial Audio Instance
 const spatialAudio = useWebRTCSpatialAudio(
     {
-        refDistance: 5,
-        maxDistance: 50,
-        rolloffFactor: 1,
-        panningModel: "HRTF",
-        distanceModel: "inverse",
+        refDistance: props.spatialRefDistance,
+        maxDistance: props.spatialMaxDistance,
+        rolloffFactor: props.spatialRolloffFactor,
+        panningModel: props.spatialPanningModel,
+        distanceModel: props.spatialDistanceModel,
     },
     {
         myPosition: toRef(props, "myPosition"),
-        myCameraOrientation: myCameraOrientationRef,
-        otherPositions: otherPositionsRecord,
-    },
+        myCameraOrientation: computed(() => props.myCameraOrientation || null),
+        // We need to map the avatar positions map to a Ref<Record<...>> or similar if composable expects it
+        // The composable expects: otherPositions?: Ref<Record<string, { x: number; y: number; z: number }>>;
+        // We have props.avatarPositions as Map.
+        // Let's create a computed for it.
+        otherPositions: computed(() => Object.fromEntries(props.avatarPositions))
+    }
 );
 
 // Computed
@@ -1477,9 +1529,9 @@ async function initLocalMedia() {
         } else {
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
-                    echoCancellation: false,
-                    noiseSuppression: false,
-                    autoGainControl: false,
+                    echoCancellation: props.echoCancellation,
+                    noiseSuppression: props.noiseSuppression,
+                    autoGainControl: props.autoGainControl,
                 },
                 video: false,
             });
@@ -1902,6 +1954,20 @@ function setPeerVolume(peerId: string, volume: number) {
 // Typed handler for slider event to satisfy linter
 function onPeerVolumeUpdate(peerId: string, value: number) {
     setPeerVolume(peerId, value);
+}
+
+// Handler for spatial audio toggle
+function onSpatialEnabledChange(enabled: boolean | null) {
+    spatialAudio.setSpatialEnabled(!!enabled);
+    console.log(`[WebRTC] Spatial audio ${enabled ? 'enabled' : 'disabled'}`);
+}
+
+// Handler for gain boost slider
+function onGainBoostChange(value: number | undefined) {
+    if (value !== undefined) {
+        spatialAudio.setGainBoost(value);
+        console.log(`[WebRTC] Gain boost set to ${value}x`);
+    }
 }
 
 // ============================================================================

@@ -9,6 +9,10 @@ export interface SpatialAudioOptions {
     coneOuterAngle?: number;
     panningModel?: PanningModelType;
     distanceModel?: DistanceModelType;
+    /** When false, bypasses the panner node for direct audio (no spatialization) */
+    spatialEnabled?: boolean;
+    /** Gain multiplier to boost audio volume (1.0 = normal, 2.0 = 2x louder) */
+    gainBoost?: number;
 }
 
 export interface PeerAudioNode {
@@ -62,7 +66,8 @@ export function useWebRTCSpatialAudio(
 
     // Default spatial audio settings
     // Updated defaults: refDistance 5 for better falloff, HRTF for better spatialization
-    const settings = {
+    // Note: Web Audio API is unitless - since Babylon.js uses meters, these are effectively in meters
+    const settings = ref({
         refDistance: options.refDistance ?? 5,
         maxDistance: options.maxDistance ?? 100,
         rolloffFactor: options.rolloffFactor ?? 1,
@@ -70,7 +75,11 @@ export function useWebRTCSpatialAudio(
         coneOuterAngle: options.coneOuterAngle ?? 360,
         panningModel: (options.panningModel ?? "HRTF") as PanningModelType,
         distanceModel: (options.distanceModel ?? "inverse") as DistanceModelType,
-    };
+        /** When false, bypasses spatialization for direct stereo audio */
+        spatialEnabled: options.spatialEnabled ?? true,
+        /** Gain multiplier to compensate for distance attenuation (1.0 = normal) */
+        gainBoost: options.gainBoost ?? 1.0,
+    });
 
     // Initialize audio context
     function initialize() {
@@ -287,23 +296,33 @@ export function useWebRTCSpatialAudio(
             const panner = audioContext.value.createPanner();
             const gain = audioContext.value.createGain();
 
-            // Configure panner
-            panner.panningModel = settings.panningModel;
-            panner.distanceModel = settings.distanceModel;
-            panner.refDistance = settings.refDistance;
-            panner.maxDistance = settings.maxDistance;
-            panner.rolloffFactor = settings.rolloffFactor;
-            panner.coneInnerAngle = settings.coneInnerAngle;
-            panner.coneOuterAngle = settings.coneOuterAngle;
+            // Configure panner (even if bypassed, keep it configured for when re-enabled)
+            panner.panningModel = settings.value.panningModel;
+            panner.distanceModel = settings.value.distanceModel;
+            panner.refDistance = settings.value.refDistance;
+            panner.maxDistance = settings.value.maxDistance;
+            panner.rolloffFactor = settings.value.rolloffFactor;
+            panner.coneInnerAngle = settings.value.coneInnerAngle;
+            panner.coneOuterAngle = settings.value.coneOuterAngle;
             panner.coneOuterGain = 0.3;
 
-            // Set initial volume
-            gain.gain.value = initialVolume / 100;
+            // Set initial volume with gain boost
+            const boostMultiplier = settings.value.gainBoost;
+            gain.gain.value = (initialVolume / 100) * boostMultiplier;
 
-            // Connect nodes: source -> panner -> gain -> destination
-            source.connect(panner);
-            panner.connect(gain);
-            gain.connect(audioContext.value.destination);
+            // Connect nodes based on spatialEnabled setting
+            if (settings.value.spatialEnabled) {
+                // Spatial mode: source -> panner -> gain -> destination
+                source.connect(panner);
+                panner.connect(gain);
+                gain.connect(audioContext.value.destination);
+                console.log(`[SpatialAudio] Spatial mode enabled for peer: ${peerId.substring(0, 8)}...`);
+            } else {
+                // Direct mode (bypass): source -> gain -> destination (no spatialization)
+                source.connect(gain);
+                gain.connect(audioContext.value.destination);
+                console.log(`[SpatialAudio] Direct mode (no spatial) for peer: ${peerId.substring(0, 8)}...`);
+            }
 
             // Store node references
             const nodeInfo: PeerAudioNode = {
@@ -315,8 +334,10 @@ export function useWebRTCSpatialAudio(
 
             peerAudioNodes.value.set(peerId, nodeInfo);
 
-            // Set initial position
-            updatePeerPosition(peerId);
+            // Set initial position (only matters if spatial is enabled)
+            if (settings.value.spatialEnabled) {
+                updatePeerPosition(peerId);
+            }
 
             // Try to play (may be blocked by autoplay policy)
             audio.play().catch((error) => {
@@ -327,7 +348,7 @@ export function useWebRTCSpatialAudio(
             });
 
             console.log(
-                `[SpatialAudio] Created spatial audio node for peer: ${peerId.substring(0, 8)}...`,
+                `[SpatialAudio] Created audio node for peer: ${peerId.substring(0, 8)}... (spatial: ${settings.value.spatialEnabled}, boost: ${boostMultiplier}x)`,
             );
 
             return audio;
@@ -440,18 +461,82 @@ export function useWebRTCSpatialAudio(
         if (!nodeInfo || !audioContext.value) return;
 
         try {
+            // Apply volume with current gain boost
+            const boostMultiplier = settings.value.gainBoost;
             nodeInfo.gain.gain.setValueAtTime(
-                volume / 100,
+                (volume / 100) * boostMultiplier,
                 audioContext.value.currentTime,
             );
             console.log(
-                `[SpatialAudio] Set volume for peer ${peerId.substring(0, 8)}...: ${volume}%`,
+                `[SpatialAudio] Set volume for peer ${peerId.substring(0, 8)}...: ${volume}% (boost: ${boostMultiplier}x)`,
             );
         } catch (error) {
             console.error(
                 `[SpatialAudio] Failed to set volume for peer ${peerId}:`,
                 error,
             );
+        }
+    }
+
+    // Toggle spatial audio on/off for all peers (re-routes audio graph)
+    function setSpatialEnabled(enabled: boolean) {
+        if (!audioContext.value) return;
+
+        const wasEnabled = settings.value.spatialEnabled;
+        settings.value.spatialEnabled = enabled;
+
+        console.log(`[SpatialAudio] Toggling spatial audio: ${wasEnabled} -> ${enabled}`);
+
+        // Re-route all existing peers
+        for (const [peerId, nodeInfo] of peerAudioNodes.value) {
+            try {
+                // Disconnect current routing
+                nodeInfo.source.disconnect();
+                nodeInfo.panner.disconnect();
+                nodeInfo.gain.disconnect();
+
+                if (enabled) {
+                    // Spatial mode: source -> panner -> gain -> destination
+                    nodeInfo.source.connect(nodeInfo.panner);
+                    nodeInfo.panner.connect(nodeInfo.gain);
+                    nodeInfo.gain.connect(audioContext.value.destination);
+                    // Update position for spatial
+                    updatePeerPosition(peerId);
+                } else {
+                    // Direct mode: source -> gain -> destination
+                    nodeInfo.source.connect(nodeInfo.gain);
+                    nodeInfo.gain.connect(audioContext.value.destination);
+                }
+
+                console.log(`[SpatialAudio] Re-routed peer ${peerId.substring(0, 8)}... to ${enabled ? 'spatial' : 'direct'} mode`);
+            } catch (error) {
+                console.error(`[SpatialAudio] Failed to re-route peer ${peerId}:`, error);
+            }
+        }
+    }
+
+    // Set gain boost for all peers (compensates for distance attenuation)
+    function setGainBoost(boost: number) {
+        if (!audioContext.value) return;
+
+        const clampedBoost = Math.max(0.1, Math.min(10, boost)); // Clamp 0.1x to 10x
+        settings.value.gainBoost = clampedBoost;
+
+        console.log(`[SpatialAudio] Setting gain boost to ${clampedBoost}x`);
+
+        // Update gain for all existing peers
+        for (const [peerId, nodeInfo] of peerAudioNodes.value) {
+            try {
+                // Get current normalized volume (without boost) and reapply with new boost
+                const currentNormalizedVolume = nodeInfo.gain.gain.value / (settings.value.gainBoost || 1);
+                nodeInfo.gain.gain.setValueAtTime(
+                    currentNormalizedVolume * clampedBoost,
+                    audioContext.value.currentTime,
+                );
+                console.log(`[SpatialAudio] Updated gain for peer ${peerId.substring(0, 8)}... with boost ${clampedBoost}x`);
+            } catch (error) {
+                console.error(`[SpatialAudio] Failed to update gain for peer ${peerId}:`, error);
+            }
         }
     }
 
@@ -625,10 +710,14 @@ export function useWebRTCSpatialAudio(
         setPeerVolume,
         getPeerVolume,
 
+        // Spatial audio control
+        setSpatialEnabled,
+        setGainBoost,
+
         // Manual position updates
         updateListenerPosition,
 
-        // Settings
+        // Settings (reactive ref)
         settings,
 
         // Resume context

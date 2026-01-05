@@ -4105,11 +4105,15 @@ if (import.meta.main) {
 
                 const result = await $`git rev-parse --abbrev-ref HEAD`;
                 const currentBranch = result.stdout.toString().trim();
+                const currentCommit = (await $`git rev-parse --short HEAD`.text()).trim();
+                const packageJson = await Bun.file("package.json").json();
+                const currentVersion = packageJson.version;
+
                 const upgradeCommand = `server:upgrade-${isCore ? "core" : "all"}`;
 
                 if (isWatch) {
                     BunLogModule({
-                        message: `Starting auto-upgrade watcher on branch '${currentBranch}'...`,
+                        message: `Starting auto-upgrade watcher on branch '${currentBranch}' (v${currentVersion} - ${currentCommit})...`,
                         type: "info",
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -4119,8 +4123,6 @@ if (import.meta.main) {
 
                     while (true) {
                         try {
-                            // Poll every 5s
-                            await Bun.sleep(5000);
 
                             // Check for updates (fetch all tracking branches and submodules)
                             await $`git fetch --all --prune --recurse-submodules`.quiet().nothrow();
@@ -4160,11 +4162,23 @@ if (import.meta.main) {
                                 });
 
                                 // Don't recurse submodules here, otherwise we might fight with the explicit submodule update below
-                                // Actually, user requested to rely on recursive pull:
-                                const pull = await $`git pull --recurse-submodules origin ${currentBranch}`.nothrow();
-                                if (pull.exitCode !== 0) {
+                                // Replace "git pull" with "git reset --hard" to ensuring we exactly match remote and avoid "divergent branch" errors (as this is an auto-deployment)
+                                const reset = await $`git reset --hard origin/${currentBranch}`.nothrow();
+                                if (reset.exitCode !== 0) {
                                     BunLogModule({
-                                        message: `Git pull failed: ${pull.stderr.toString()}`,
+                                        message: `Git reset failed: ${reset.stderr.toString()}`,
+                                        type: "error",
+                                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                    });
+                                    continue;
+                                }
+                                
+                                // Update submodules (init and recursive)
+                                const submodules = await $`git submodule update --init --recursive`.nothrow();
+                                if (submodules.exitCode !== 0) {
+                                    BunLogModule({
+                                        message: `Git submodule update failed: ${submodules.stderr.toString()}`,
                                         type: "error",
                                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                         debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -4214,6 +4228,9 @@ if (import.meta.main) {
                                     },
                                 });
                             }
+                            
+                            // Poll every 5s (wait at the end of loop)
+                            await Bun.sleep(5000);
                         } catch (error) {
                             BunLogModule({
                                 message: `Watch error: ${error instanceof Error ? error.message : String(error)}`,

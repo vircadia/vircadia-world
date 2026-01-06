@@ -39,6 +39,13 @@ class WorldApiAssetManager {
     private lastAssetMaintenanceDurationMs: number | null = null;
     private lastAssetFilesWarmed: number | null = null;
 
+    // Zero buffer for speed tests (10MB)
+    private static readonly ZERO_BUFFER = new Uint8Array(10 * 1024 * 1024);
+    // Cache stats cache
+    private lastCacheStats: Service.API.Asset.I_AssetCacheStats | null = null;
+    private lastCacheStatsTime = 0;
+
+
     private addCorsHeaders(response: Response, req: Request): Response {
         const origin = req.headers.get("origin");
 
@@ -426,10 +433,28 @@ class WorldApiAssetManager {
         }
     }
 
-    private async getAssetCacheStats(): Promise<Service.API.Asset.I_AssetCacheStats> {
+    private async getAssetCacheStats(
+        forceRefresh = false,
+    ): Promise<Service.API.Asset.I_AssetCacheStats> {
+        // Return cached stats if fresh enough (within 5 seconds) and not forced
+        if (
+            !forceRefresh &&
+            this.lastCacheStats &&
+            Date.now() - this.lastCacheStatsTime < 5000
+        ) {
+            return this.lastCacheStats;
+        }
+
+        // If maintenance is running, we might want to just return what we have or wait?
+        // For now, let's do a quick scan if we must, or just return the last known good state if we have it?
+        // Actually, readdir is fast, but doing it on every request is bad.
+        // Let's implement a lighter check.
+
         let totalBytes = 0;
         let fileCount = 0;
         try {
+            // If the cache is huge, this is still slow.
+            // But doing it here allows us to update the cached stats.
             const entries = await readdir(this.assetCacheDir, {
                 withFileTypes: true,
             });
@@ -444,7 +469,8 @@ class WorldApiAssetManager {
                 } catch {}
             }
         } catch {}
-        return {
+
+        this.lastCacheStats = {
             dir: this.assetCacheDir,
             maxMegabytes: this.assetCacheMaxBytes / 1024 / 1024,
             totalMegabytes: totalBytes / 1024 / 1024,
@@ -455,12 +481,14 @@ class WorldApiAssetManager {
                 this.lastAssetMaintenanceDurationMs ?? null,
             filesWarmedLastRun: this.lastAssetFilesWarmed ?? null,
         };
+        this.lastCacheStatsTime = Date.now();
+        return this.lastCacheStats;
     }
 
     async initialize() {
         BunLogModule({
             prefix: LOG_PREFIX,
-            message: "Initializing World API Asset Manager",
+            message: "Initializing World API Asset Manager - Speed Test Optimized",
             debug: serverConfiguration.VRCA_SERVER_DEBUG,
             suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             type: "info",
@@ -564,25 +592,76 @@ class WorldApiAssetManager {
 
                     // Speed Test Download
                     if (
-                        url.pathname === "/world/rest/asset/speedtest/download" &&
-                        req.method === "GET"
+                        url.pathname ===
+                        "/world/rest/asset/speedtest/download" &&
+                        (req.method === "GET" || req.method === "HEAD")
                     ) {
                         const sizeStr = url.searchParams.get("size");
-                        let size = sizeStr ? parseInt(sizeStr) : 10 * 1024 * 1024; // Default 10MB
+                        let size = sizeStr
+                            ? parseInt(sizeStr)
+                            : 10 * 1024 * 1024; // Default 10MB
                         // Cap at 100MB to prevent abuse
-                        if (size > 100 * 1024 * 1024) size = 100 * 1024 * 1024;
+                        if (size > 100 * 1024 * 1024)
+                            size = 100 * 1024 * 1024;
                         if (size < 0) size = 1024;
 
-                        const buffer = new Uint8Array(size); // Zero-filled by default
-                        
-                        const response = new Response(buffer, {
+                        const headers = new Headers({
+                            "Content-Type": "application/octet-stream",
+                            "Cache-Control":
+                                "no-store, no-cache, must-revalidate, proxy-revalidate",
+                            Pragma: "no-cache",
+                            Expires: "0",
+                            "Content-Length": size.toString(),
+                        });
+
+                        if (req.method === "HEAD") {
+                            const response = new Response(null, {
+                                status: 200,
+                                headers,
+                            });
+                            return this.addCorsHeaders(response, req);
+                        }
+
+                        // Use sliced view of zero buffer to avoid allocation
+                        // If requested size > ZERO_BUFFER size, we might need multiple chunks or just limit it?
+                        // For simplicity and performance, if size > ZERO_BUFFER, we just reuse it circularly or just alloc if really needed.
+                        // But 100MB allocation is bad.
+                        // Let's just limit the speed test to max 10MB per request in the client, but here we support up to 100MB?
+                        // If we serve a stream, we can repeat the zero buffer.
+                        // But Response(Uint8Array) matches content-length automatically?
+                        // Let's stick to returning a view if size <= 10MB.
+                        // If size > 10MB, we'll alloc for now (rare case) or just cap client tests to 10MB.
+                        // Client asks for 5MB so we are good.
+
+                        let body: Uint8Array;
+                        if (size <= WorldApiAssetManager.ZERO_BUFFER.length) {
+                            body = WorldApiAssetManager.ZERO_BUFFER.subarray(
+                                0,
+                                size,
+                            );
+                        } else {
+                            // Fallback for large requests (should be rare)
+                            body = new Uint8Array(size);
+                        }
+
+                        const response = new Response(body as any, {
+                            status: 200,
+                            headers,
+                        });
+                        return this.addCorsHeaders(response, req);
+                    }
+
+                    // Speed Test Ping
+                    if (
+                        url.pathname === "/world/rest/asset/speedtest/ping" &&
+                        req.method === "GET"
+                    ) {
+                        const response = new Response("pong", {
                             status: 200,
                             headers: {
-                                "Content-Type": "application/octet-stream",
-                                "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-                                "Pragma": "no-cache",
-                                "Expires": "0",
-                            }
+                                "Content-Type": "text/plain",
+                                "Cache-Control": "no-cache",
+                            },
                         });
                         return this.addCorsHeaders(response, req);
                     }
@@ -592,8 +671,15 @@ class WorldApiAssetManager {
                         url.pathname === "/world/rest/asset/speedtest/upload" &&
                         req.method === "POST"
                     ) {
-                        // Consume the body to ensure we measure the full upload time
-                        await req.arrayBuffer();
+                        // Consume the body stream to ensure we measure the full upload time
+                        // without buffering the entire file in memory
+                        if (req.body) {
+                            const reader = req.body.getReader();
+                            while (true) {
+                                const { done } = await reader.read();
+                                if (done) break;
+                            }
+                        }
                         
                         const response = new Response(JSON.stringify({ status: "ok" }), {
                             status: 200,

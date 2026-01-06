@@ -134,30 +134,11 @@ async function startTest() {
             try {
                 // 1. Latency (Ping)
                 const startPing = performance.now();
-                // Use a generic endpoint or the stats endpoint if available. 
-                // For simplified logic, if the service is WS, we still use HTTP endpoint we added.
-                // We use /stats for ping if possible, or just the download endpoint with size 0? 
-                // Actually, for Auth/Inference/Asset check if they have /stats.
-                // Asset: /world/rest/asset/stats (checked in previous implementation)
-                // Auth: /world/rest/auth/stats (Auth has stats)
-                // Inference: /world/rest/inference/stats (Inference has stats)
-                // WS: /world/rest/ws/stats? No, WS doesn't seem to have a stats endpoint exposed via HTTP in the code I read?
-                // Wait, WS manager has `fetch` handler but I didn't see stats endpoint logic in my grep or read. 
-                // Use existing `addCorsHeaders` handler for OPTIONS as a ping? Or download?
-                // Let's use download with small size as ping for all to be safe and consistent.
 
-                // Correction: implementation plan assumed stats for ping.
-                // Let's try to use `tests/download?size=0` or small size for latency check?
-                // Or just a fetch to the base path?
-
-                // Let's check if services support HEAD or OPTIONS.
-                // All managers I touched support OPTIONS.
-                // So I can use OPTIONS for latency.
-
-                await fetch(`${baseUrl}${service.path}/speedtest/download?size=1`, { method: "HEAD" }).catch(() => {
-                    // fallback to GET if HEAD fails
-                    return fetch(`${baseUrl}${service.path}/speedtest/download?size=1`);
-                });
+                // Use the dedicated ping endpoint
+                const pingRes = await fetch(`${baseUrl}${service.path}/speedtest/ping`);
+                if (!pingRes.ok) throw new Error(`Ping failed: HTTP ${pingRes.status}`);
+                await pingRes.text(); // Consume body (should be "pong")
 
                 const endPing = performance.now();
                 service.latency = Math.round(endPing - startPing);

@@ -134,13 +134,22 @@ export class WorldApiWsManager {
         const origin = req.headers.get("origin");
 
         // Auto-allow localhost and 127.0.0.1 on any port for development
-        const isLocalhost = origin && isLocalhostOrigin(origin);
+        const isLocalhost =
+            origin &&
+            (origin.startsWith("http://localhost:") ||
+                origin.startsWith("https://localhost:") ||
+                origin.startsWith("http://127.0.0.1:") ||
+                origin.startsWith("https://127.0.0.1:"));
 
         // Build allowed origins for production
         const allowedOrigins = [
             // Caddy domain
             `https://${serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN}`,
             `http://${serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN}`,
+            // WS Manager's own public endpoint
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SSL_ENABLED_PUBLIC_AVAILABLE_AT
+                ? `https://${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT}${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT !== 443 ? `:${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT}` : ""}`
+                : `http://${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT}${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT !== 80 ? `:${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT}` : ""}`,
         ];
         // Add allowed origins from config
         allowedOrigins.push(...serverConfiguration.VRCA_SERVER_ALLOWED_ORIGINS);
@@ -151,7 +160,7 @@ export class WorldApiWsManager {
             response.headers.set("Access-Control-Allow-Credentials", "true");
         } else {
             // For non-matching origins, don't set credentials
-            // response.headers.set("Access-Control-Allow-Origin", "*");
+            response.headers.set("Access-Control-Allow-Origin", "*");
             // Note: We don't set Access-Control-Allow-Credentials for wildcard origins
         }
 
@@ -163,6 +172,7 @@ export class WorldApiWsManager {
             "Access-Control-Allow-Headers",
             "Content-Type, Authorization, X-Requested-With",
         );
+
         return response;
     }
 
@@ -1272,52 +1282,7 @@ export class WorldApiWsManager {
     private SUPPRESS =
         serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SUPPRESS;
 
-    // Add CORS helper function
-    private addCorsHeaders(response: Response, req: Request): Response {
-        const origin = req.headers.get("origin");
 
-        // Auto-allow localhost and 127.0.0.1 on any port for development
-        const isLocalhost =
-            origin &&
-            (origin.startsWith("http://localhost:") ||
-                origin.startsWith("https://localhost:") ||
-                origin.startsWith("http://127.0.0.1:") ||
-                origin.startsWith("https://127.0.0.1:"));
-
-        // Build allowed origins for production
-        const allowedOrigins = [
-            // Caddy domain
-            `https://${serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN}`,
-            `http://${serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN}`,
-            // WS Manager's own public endpoint
-            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SSL_ENABLED_PUBLIC_AVAILABLE_AT
-                ? `https://${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT}${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT !== 443 ? `:${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT}` : ""}`
-                : `http://${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT}${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT !== 80 ? `:${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT}` : ""}`,
-        ];
-        // Add allowed origins from config
-        allowedOrigins.push(...serverConfiguration.VRCA_SERVER_ALLOWED_ORIGINS);
-
-        // Check if origin is allowed (localhost on any port OR in allowed list)
-        if (origin && (isLocalhost || allowedOrigins.includes(origin))) {
-            response.headers.set("Access-Control-Allow-Origin", origin);
-            response.headers.set("Access-Control-Allow-Credentials", "true");
-        } else {
-            // For non-matching origins, don't set credentials
-            response.headers.set("Access-Control-Allow-Origin", "*");
-            // Note: We don't set Access-Control-Allow-Credentials for wildcard origins
-        }
-
-        response.headers.set(
-            "Access-Control-Allow-Methods",
-            "GET, POST, PUT, DELETE, OPTIONS",
-        );
-        response.headers.set(
-            "Access-Control-Allow-Headers",
-            "Content-Type, Authorization, X-Requested-With",
-        );
-
-        return response;
-    }
 
     // Wrapper helpers to the ACL service
     private async warmAgentAcl(agentId: string) {
@@ -1502,13 +1467,35 @@ export class WorldApiWsManager {
                         return this.addCorsHeaders(response, req);
                     }
 
+                    // Speed Test Ping
+                    if (
+                        url.pathname === "/world/rest/ws/speedtest/ping" &&
+                        req.method === "GET"
+                    ) {
+                        const response = new Response("pong", {
+                            status: 200,
+                            headers: {
+                                "Content-Type": "text/plain",
+                                "Cache-Control": "no-cache",
+                            },
+                        });
+                        return this.addCorsHeaders(response, req);
+                    }
+
                     // Speed Test Upload
                     if (
                         url.pathname === "/world/rest/ws/speedtest/upload" &&
                         req.method === "POST"
                     ) {
-                        // Consume the body to ensure we measure the full upload time
-                        await req.arrayBuffer();
+                        // Consume the body stream to ensure we measure the full upload time
+                        // without buffering the entire file in memory
+                        if (req.body) {
+                            const reader = req.body.getReader();
+                            while (true) {
+                                const { done } = await reader.read();
+                                if (done) break;
+                            }
+                        }
                         
                         const response = new Response(JSON.stringify({ status: "ok" }), {
                             status: 200,

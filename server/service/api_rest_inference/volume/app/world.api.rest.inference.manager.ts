@@ -30,6 +30,9 @@ class WorldApiInferenceManager {
     private cerebrasService = new CerebrasService();
     private groqService = new GroqService();
 
+    // Zero buffer for speed tests (10MB)
+    private static readonly ZERO_BUFFER = new Uint8Array(10 * 1024 * 1024);
+
     private addCorsHeaders(response: Response, req: Request): Response {
         const origin = req.headers.get("origin");
 
@@ -185,25 +188,65 @@ class WorldApiInferenceManager {
 
                     // Speed Test Download
                     if (
-                        url.pathname === "/world/rest/inference/speedtest/download" &&
-                        req.method === "GET"
+                        url.pathname ===
+                        "/world/rest/inference/speedtest/download" &&
+                        (req.method === "GET" || req.method === "HEAD")
                     ) {
                         const sizeStr = url.searchParams.get("size");
-                        let size = sizeStr ? parseInt(sizeStr) : 10 * 1024 * 1024; // Default 10MB
+                        let size = sizeStr
+                            ? parseInt(sizeStr)
+                            : 10 * 1024 * 1024; // Default 10MB
                         // Cap at 100MB to prevent abuse
-                        if (size > 100 * 1024 * 1024) size = 100 * 1024 * 1024;
+                        if (size > 100 * 1024 * 1024)
+                            size = 100 * 1024 * 1024;
                         if (size < 0) size = 1024;
 
-                        const buffer = new Uint8Array(size); // Zero-filled by default
+                        const headers = new Headers({
+                            "Content-Type": "application/octet-stream",
+                            "Cache-Control":
+                                "no-store, no-cache, must-revalidate, proxy-revalidate",
+                            Pragma: "no-cache",
+                            Expires: "0",
+                            "Content-Length": size.toString(),
+                        });
+
+                        if (req.method === "HEAD") {
+                            const response = new Response(null, {
+                                status: 200,
+                                headers,
+                            });
+                            return this.addCorsHeaders(response, req);
+                        }
+
+                        let body: Uint8Array;
+                        if (size <= WorldApiInferenceManager.ZERO_BUFFER.length) {
+                            body = WorldApiInferenceManager.ZERO_BUFFER.subarray(
+                                0,
+                                size,
+                            );
+                        } else {
+                            // Fallback for large requests (should be rare)
+                            body = new Uint8Array(size);
+                        }
                         
-                        const response = new Response(buffer, {
+                        const response = new Response(body as any, {
+                            status: 200,
+                            headers,
+                        });
+                        return this.addCorsHeaders(response, req);
+                    }
+
+                    // Speed Test Ping
+                    if (
+                        url.pathname === "/world/rest/inference/speedtest/ping" &&
+                        req.method === "GET"
+                    ) {
+                        const response = new Response("pong", {
                             status: 200,
                             headers: {
-                                "Content-Type": "application/octet-stream",
-                                "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-                                "Pragma": "no-cache",
-                                "Expires": "0",
-                            }
+                                "Content-Type": "text/plain",
+                                "Cache-Control": "no-cache",
+                            },
                         });
                         return this.addCorsHeaders(response, req);
                     }
@@ -213,8 +256,15 @@ class WorldApiInferenceManager {
                         url.pathname === "/world/rest/inference/speedtest/upload" &&
                         req.method === "POST"
                     ) {
-                        // Consume the body to ensure we measure the full upload time
-                        await req.arrayBuffer();
+                        // Consume the body stream to ensure we measure the full upload time
+                        // without buffering the entire file in memory
+                        if (req.body) {
+                            const reader = req.body.getReader();
+                            while (true) {
+                                const { done } = await reader.read();
+                                if (done) break;
+                            }
+                        }
                         
                         const response = new Response(JSON.stringify({ status: "ok" }), {
                             status: 200,

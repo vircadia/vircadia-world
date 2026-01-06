@@ -562,6 +562,48 @@ class WorldApiAssetManager {
                         return this.addCorsHeaders(response, req);
                     }
 
+                    // Speed Test Download
+                    if (
+                        url.pathname === "/world/rest/asset/speedtest/download" &&
+                        req.method === "GET"
+                    ) {
+                        const sizeStr = url.searchParams.get("size");
+                        let size = sizeStr ? parseInt(sizeStr) : 10 * 1024 * 1024; // Default 10MB
+                        // Cap at 100MB to prevent abuse
+                        if (size > 100 * 1024 * 1024) size = 100 * 1024 * 1024;
+                        if (size < 0) size = 1024;
+
+                        const buffer = new Uint8Array(size); // Zero-filled by default
+                        
+                        const response = new Response(buffer, {
+                            status: 200,
+                            headers: {
+                                "Content-Type": "application/octet-stream",
+                                "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+                                "Pragma": "no-cache",
+                                "Expires": "0",
+                            }
+                        });
+                        return this.addCorsHeaders(response, req);
+                    }
+
+                    // Speed Test Upload
+                    if (
+                        url.pathname === "/world/rest/asset/speedtest/upload" &&
+                        req.method === "POST"
+                    ) {
+                        // Consume the body to ensure we measure the full upload time
+                        await req.arrayBuffer();
+                        
+                        const response = new Response(JSON.stringify({ status: "ok" }), {
+                            status: 200,
+                            headers: {
+                                "Content-Type": "application/json",
+                            }
+                        });
+                        return this.addCorsHeaders(response, req);
+                    }
+
                     // Stats (moved to official REST endpoint)
                     if (
                         url.pathname.startsWith(

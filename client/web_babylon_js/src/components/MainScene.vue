@@ -59,13 +59,24 @@
                         </v-tooltip>
 
                         <!-- Performance Speed Dial -->
+                        <v-tooltip location="bottom">
+                            <template #activator="{ props }">
+                                <v-btn v-bind="props" icon variant="text" class="ml-2"
+                                    @click="speedTestDialogOpen = true">
+                                    <v-icon>mdi-network-outline</v-icon>
+                                </v-btn>
+                            </template>
+                            <span>Speed Test</span>
+                        </v-tooltip>
+                        <SpeedTestDialog v-model="speedTestDialogOpen" />
+
                         <v-speed-dial v-model="perfDialOpen" location="bottom end" transition="fade-transition">
                             <template #activator="{ props }">
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                         'mdi-speedometer-slow'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -100,7 +111,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                     <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="fly">
@@ -136,7 +147,7 @@
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                             'mdi-file-tree-outline'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -567,6 +578,7 @@ import BabylonTalkLevel from "@/components/BabylonTalkLevel.vue";
 import BabylonWebRTC from "@/components/BabylonWebRTC.vue";
 import LeftDrawer from "@/components/LeftDrawer.vue";
 import RightDrawer from "@/components/RightDrawer.vue";
+import SpeedTestDialog from "@/components/SpeedTestDialog.vue";
 import VircadiaAgent from "@/components/VircadiaAgent.vue";
 import VircadiaCloudInferenceProvider from "@/components/VircadiaCloudInferenceProvider.vue";
 import VircadiaWorldAuthLogin from "@/components/VircadiaWorldAuthLogin.vue";
@@ -633,6 +645,7 @@ function onInspectorVisibleChange(v: boolean) {
 }
 
 const performanceMode = useStorage<"normal" | "low">("vrca.perf.mode", "normal");
+const speedTestDialogOpen = ref(false);
 
 // WebRTC component ref for direct Agent API access (replaces bus)
 const agentActive = useStorage<boolean>("vrca.agent.active", false);

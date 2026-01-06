@@ -43,16 +43,19 @@
                         <v-app-bar-nav-icon @click="leftDrawerOpen = !leftDrawerOpen" />
                         <v-spacer />
 
-                        <!-- Audio Controls -->
+                        <!-- Audio Controls / Active Users -->
                         <v-tooltip location="bottom">
                             <template #activator="{ props }">
-                                <v-btn v-bind="props" icon variant="text"
-                                    :color="activeAudioCount > 0 ? 'success' : undefined" class="ml-2"
-                                    @click="showWebRTCControls = true">
-                                    <v-icon>mdi-headphones</v-icon>
-                                </v-btn>
+                                <v-badge :content="activeUserCount" color="secondary" overlap location="bottom start"
+                                    offset-x="10" offset-y="10" :model-value="activeUserCount > 0" class="ml-2">
+                                    <v-btn v-bind="props" icon variant="text"
+                                        :color="activeUserCount > 0 ? 'success' : undefined"
+                                        @click="showWebRTCControls = true">
+                                        <v-icon>mdi-account-group</v-icon>
+                                    </v-btn>
+                                </v-badge>
                             </template>
-                            <span>Audio Controls ({{ activeAudioCount }} active)</span>
+                            <span>Active Users ({{ activeUserCount }} others connected)</span>
                         </v-tooltip>
 
                         <!-- Performance Speed Dial -->
@@ -62,7 +65,7 @@
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                         'mdi-speedometer-slow'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -97,7 +100,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                     <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="fly">
@@ -133,7 +136,7 @@
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                             'mdi-file-tree-outline'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -206,7 +209,6 @@
                                                             <v-progress-circular indeterminate color="white" size="24"
                                                                 class="mr-2" />
                                                             <span>Loading scene...</span>
-                                                            <span>Scene: {{ providedScene ? 'yes' : 'no' }}</span>
                                                         </v-snackbar>
                                                         <template v-if="providedScene">
                                                             <!-- Component Loader -->
@@ -876,7 +878,7 @@ const rightDrawerTab = useStorage<string>(
 );
 const leftDrawerOpen = useStorage<boolean>("vrca.nav.left.open", false);
 
-const activeAudioCount = computed(() => 0);
+const activeUserCount = computed(() => webrtcPeersMap.value.size);
 
 const physicsRef = ref<InstanceType<typeof BabylonPhysics> | null>(null);
 

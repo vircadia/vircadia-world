@@ -1072,9 +1072,36 @@ onMounted(async () => {
         }
         const currentSpeed = walkSpeed.value * speedMultiplier;
 
-        const m = new Matrix();
-        avatarNode.value.rotationQuaternion?.toRotationMatrix(m);
-        const worldDir = Vector3.TransformCoordinates(moveDirection, m);
+        // Camera-relative movement: use camera forward/right projected onto XZ plane
+        let worldDir: Vector3;
+        const activeCamera = props.scene.activeCamera;
+        if (activeCamera && moveDirection.lengthSquared() > 0) {
+            // Get camera's forward direction and project onto XZ plane
+            const camForward = activeCamera.getDirection(Vector3.Forward());
+            camForward.y = 0;
+            if (camForward.lengthSquared() > 1e-6) {
+                camForward.normalize();
+            } else {
+                // Camera looking straight up/down, fallback to avatar forward
+                camForward.set(0, 0, 1);
+            }
+            // Camera's right direction (cross product of up and forward)
+            const camRight = Vector3.Cross(Vector3.Up(), camForward).normalize();
+            // Combine: forward/back uses camera forward, strafe uses camera right
+            worldDir = camForward.scale(moveDirection.z).add(camRight.scale(moveDirection.x));
+            if (worldDir.lengthSquared() > 0) worldDir.normalize();
+
+            // Snap avatar to face camera forward when W or S is pressed (forward/backward movement)
+            if (ks.forward || ks.backward) {
+                const yaw = Math.atan2(camForward.x, camForward.z);
+                setOrientation(Quaternion.FromEulerAngles(0, yaw, 0));
+            }
+        } else {
+            // Fallback to avatar-relative if no camera or not moving
+            const m = new Matrix();
+            avatarNode.value.rotationQuaternion?.toRotationMatrix(m);
+            worldDir = Vector3.TransformCoordinates(moveDirection, m);
+        }
         const worldMove = worldDir.scale(currentSpeed);
 
         const currentVelocity = getVelocity() ?? Vector3.Zero();

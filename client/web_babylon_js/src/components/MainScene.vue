@@ -256,6 +256,44 @@
                                                                         :mouse-lock-camera-rotate-toggle-codes="['Digit1']"
                                                                         :mouse-lock-camera-avatar-rotate-toggle-codes="['Digit2']"
                                                                         v-slot="controls">
+                                                                        <!-- Camera Lock Alert -->
+                                                                        <v-fade-transition>
+                                                                            <v-alert density="compact" type="info"
+                                                                                variant="flat" class="camera-lock-alert"
+                                                                                style="position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); z-index: 100; width: auto; pointer-events: none;">
+                                                                                <div v-if="controls.keyState.mouseLockCameraRotate || controls.keyState.mouseLockCameraAvatarRotate"
+                                                                                    class="d-flex align-center">
+                                                                                    <span class="mr-2">Press</span>
+                                                                                    <v-hotkey variant="elevated"
+                                                                                        platform="auto" keys="ESC" />
+                                                                                    <span class="ml-2">to exit camera
+                                                                                        lock mode</span>
+                                                                                </div>
+                                                                                <div v-else class="d-flex align-center">
+                                                                                    <span class="mr-2">To enter camera
+                                                                                        lock mode press</span>
+                                                                                    <v-hotkey variant="elevated"
+                                                                                        platform="auto" keys="2" />
+                                                                                </div>
+                                                                            </v-alert>
+                                                                        </v-fade-transition>
+
+                                                                        <!-- Flying Alert -->
+                                                                        <v-fade-transition>
+                                                                            <v-alert v-if="avatarRef?.isFlying"
+                                                                                density="compact" type="info"
+                                                                                variant="flat" class="flying-alert"
+                                                                                style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 100; width: auto; pointer-events: none;">
+                                                                                <div class="d-flex align-center">
+                                                                                    <span class="mr-2">You can
+                                                                                        toggle
+                                                                                        flying by pressing</span>
+                                                                                    <v-hotkey variant="elevated"
+                                                                                        platform="auto" keys="F" />
+                                                                                </div>
+                                                                            </v-alert>
+                                                                        </v-fade-transition>
+
                                                                         <BabylonMyAvatar :scene="providedScene"
                                                                             :vircadia-world="vircadiaWorld"
                                                                             :key-state="controls.keyState"

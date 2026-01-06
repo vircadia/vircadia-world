@@ -169,10 +169,10 @@ if (props.scene) {
             keyState.value.dash = isDown;
         }
         if (props.turnLeftCodes.includes(code)) {
-            keyState.value.turnLeft = isDown;
+            keyState.value.turnLeft = isDown && !keyState.value.mouseLockCameraAvatarRotate;
         }
         if (props.turnRightCodes.includes(code)) {
-            keyState.value.turnRight = isDown;
+            keyState.value.turnRight = isDown && !keyState.value.mouseLockCameraAvatarRotate;
         }
         if (props.crouchToggleCodes.includes(code)) {
             keyState.value.crouch = isDown;

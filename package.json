@@ -35,7 +35,7 @@
                 "@vueuse/core": "^13.9.0",
                 "pinia": "^3.0.3",
                 "vue-router": "^4.5.1",
-                "vuetify": "^3.10.1"
+                "vuetify": "^3.11.6"
             },
             "types": {
                 "@types/bun": "latest",

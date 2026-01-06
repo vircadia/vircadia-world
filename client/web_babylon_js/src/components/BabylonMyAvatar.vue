@@ -1091,8 +1091,8 @@ onMounted(async () => {
             worldDir = camForward.scale(moveDirection.z).add(camRight.scale(moveDirection.x));
             if (worldDir.lengthSquared() > 0) worldDir.normalize();
 
-            // Snap avatar to face camera forward when W or S is pressed (forward/backward movement)
-            if (ks.forward || ks.backward) {
+            // Snap avatar to face camera forward when any movement key is pressed
+            if (ks.forward || ks.backward || ks.strafeLeft || ks.strafeRight) {
                 const yaw = Math.atan2(camForward.x, camForward.z);
                 setOrientation(Quaternion.FromEulerAngles(0, yaw, 0));
             }

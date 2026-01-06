@@ -4,13 +4,30 @@
 
 {$CADDY_DOMAIN} {
   {$CADDY_TLS_MODE}
-  encode zstd gzip
+  
+  # Skip compression for binary assets (already compressed, saves CPU)
+  @not_binary {
+    not path *.glb *.gltf *.png *.jpg *.jpeg *.webp *.mp3 *.mp4 *.ogg *.bin *.ktx2
+  }
+  encode @not_binary zstd gzip
 
   # 1. Handle API requests
   handle /world/rest/* {
     reverse_proxy /world/rest/ws* http://{$CADDY_UPSTREAM_API_WS}
     reverse_proxy /world/rest/auth* http://{$CADDY_UPSTREAM_API_AUTH}
-    reverse_proxy /world/rest/asset* http://{$CADDY_UPSTREAM_API_ASSET}
+    
+    # Asset endpoint optimized for large file transfers
+    reverse_proxy /world/rest/asset* http://{$CADDY_UPSTREAM_API_ASSET} {
+      transport http {
+        read_buffer 64kb
+        write_buffer 64kb
+        max_conns_per_host 100
+        keepalive 2m
+        keepalive_idle_conns 50
+      }
+      flush_interval -1
+    }
+    
     reverse_proxy /world/rest/inference* http://{$CADDY_UPSTREAM_API_INFERENCE}
   }
 

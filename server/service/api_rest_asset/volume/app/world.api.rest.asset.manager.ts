@@ -45,6 +45,16 @@ class WorldApiAssetManager {
     private lastCacheStats: Service.API.Asset.I_AssetCacheStats | null = null;
     private lastCacheStatsTime = 0;
 
+    // Concurrency limiter for downloads to prevent system overload
+    private readonly maxConcurrentDownloads = 50;
+    private readonly maxDownloadQueueSize = 100; // Return 503 if queue exceeds this
+    private currentDownloads = 0;
+    private downloadQueue: Array<() => void> = [];
+
+    // File stat cache to avoid repeated stat() calls (TTL: 30 seconds)
+    private fileStatCache: Map<string, { size: number; mtimeMs: number; cachedAt: number }> = new Map();
+    private readonly fileStatCacheTtlMs = 30000;
+
 
     private addCorsHeaders(response: Response, req: Request): Response {
         const origin = req.headers.get("origin");
@@ -133,14 +143,55 @@ class WorldApiAssetManager {
     private async getCachedFileStat(
         filePath: string,
     ): Promise<{ size: number; mtimeMs: number } | null> {
+        // Check in-memory cache first
+        const cached = this.fileStatCache.get(filePath);
+        if (cached && Date.now() - cached.cachedAt < this.fileStatCacheTtlMs) {
+            return { size: cached.size, mtimeMs: cached.mtimeMs };
+        }
+        
         try {
             const s = await stat(filePath);
             if (!s.isFile()) return null;
-            return { size: s.size, mtimeMs: s.mtimeMs };
+            const result = { size: s.size, mtimeMs: s.mtimeMs };
+            // Cache the result
+            this.fileStatCache.set(filePath, { ...result, cachedAt: Date.now() });
+            return result;
         } catch {
+            // Remove from cache if file doesn't exist
+            this.fileStatCache.delete(filePath);
             return null;
         }
     }
+
+    private invalidateFileStatCache(filePath: string): void {
+        this.fileStatCache.delete(filePath);
+    }
+
+    // Concurrency limiter methods
+    private isDownloadOverloaded(): boolean {
+        return this.downloadQueue.length >= this.maxDownloadQueueSize;
+    }
+
+    private async acquireDownloadSlot(): Promise<void> {
+        if (this.currentDownloads < this.maxConcurrentDownloads) {
+            this.currentDownloads++;
+            return;
+        }
+        return new Promise(resolve => this.downloadQueue.push(() => {
+            this.currentDownloads++;
+            resolve();
+        }));
+    }
+
+    private releaseDownloadSlot(): void {
+        const next = this.downloadQueue.shift();
+        if (next) {
+            next();
+        } else {
+            this.currentDownloads--;
+        }
+    }
+
     private async ensureAssetCacheDir(): Promise<void> {
         await mkdir(this.assetCacheDir, { recursive: true });
     }
@@ -172,14 +223,12 @@ class WorldApiAssetManager {
     private async cacheWriteFile(filePath: string, bytes: Uint8Array) {
         const file = Bun.file(filePath);
         await Bun.write(file, bytes);
+        // Invalidate stat cache after write
+        this.invalidateFileStatCache(filePath);
     }
     private async isCached(filePath: string): Promise<boolean> {
-        try {
-            const s = await stat(filePath);
-            return s.isFile() && s.size > 0;
-        } catch {
-            return false;
-        }
+        const cached = await this.getCachedFileStat(filePath);
+        return cached !== null && cached.size > 0;
     }
 
     private async getDbAssetSize(key: string): Promise<number | null> {
@@ -813,6 +862,33 @@ class WorldApiAssetManager {
                                 const provider = queryData.provider;
                                 const sessionIdFromQuery = queryData.sessionId;
 
+                                // Check if system is overloaded - return 503 early
+                                if (this.isDownloadOverloaded()) {
+                                    BunLogModule({
+                                        prefix: LOG_PREFIX,
+                                        message: "System overloaded, rejecting asset request",
+                                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                        suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                        type: "warning",
+                                        data: { 
+                                            key, 
+                                            queueSize: this.downloadQueue.length,
+                                            currentDownloads: this.currentDownloads 
+                                        },
+                                    });
+                                    const response = new Response(
+                                        JSON.stringify({ error: "Server overloaded, please retry" }),
+                                        { 
+                                            status: 503, 
+                                            headers: { 
+                                                "Content-Type": "application/json",
+                                                "Retry-After": "2" 
+                                            } 
+                                        }
+                                    );
+                                    return this.addCorsHeaders(response, req);
+                                }
+
                                 BunLogModule({
                                     prefix: LOG_PREFIX,
                                     message:
@@ -966,16 +1042,16 @@ class WorldApiAssetManager {
                                             "Content-Type",
                                             assetRow.asset__mime_type,
                                         );
-                                    let diskSize = 0;
-                                    try {
-                                        const s = await stat(filePath);
-                                        diskSize = s.isFile() ? s.size : 0;
-                                    } catch {}
+                                    // Use cached stat to avoid disk I/O
+                                    const fileStat = await this.getCachedFileStat(filePath);
+                                    const diskSize = fileStat?.size || 0;
                                     if (diskSize > 0)
                                         headers.set(
                                             "Content-Length",
                                             String(diskSize),
                                         );
+                                    // Prevent reverse proxy buffering for large files
+                                    headers.set("X-Accel-Buffering", "no");
                                     const response = new Response(file, {
                                         headers,
                                     });
@@ -990,6 +1066,7 @@ class WorldApiAssetManager {
                                         responseSize,
                                         true,
                                     );
+                                    const durationMs = performance.now() - startTime;
                                     BunLogModule({
                                         prefix: LOG_PREFIX,
                                         message: "Asset served from cache",
@@ -1006,6 +1083,7 @@ class WorldApiAssetManager {
                                             contentType:
                                                 assetRow?.asset__mime_type ||
                                                 null,
+                                            durationMs,
                                         },
                                     });
                                     return this.addCorsHeaders(response, req);
@@ -1094,16 +1172,16 @@ class WorldApiAssetManager {
                                         "Content-Type",
                                         row.asset__mime_type,
                                     );
-                                let diskSize = 0;
-                                try {
-                                    const s = await stat(filePath);
-                                    diskSize = s.isFile() ? s.size : 0;
-                                } catch {}
+                                // Use cached stat (was just written, so will be invalidated and re-fetched)
+                                const fileStat = await this.getCachedFileStat(filePath);
+                                const diskSize = fileStat?.size || 0;
                                 if (diskSize > 0)
                                     headers.set(
                                         "Content-Length",
                                         String(diskSize),
                                     );
+                                // Prevent reverse proxy buffering for large files
+                                headers.set("X-Accel-Buffering", "no");
                                 const response = new Response(
                                     Bun.file(filePath),
                                     { headers },
@@ -1117,6 +1195,7 @@ class WorldApiAssetManager {
                                     responseSize,
                                     true,
                                 );
+                                const durationMs = performance.now() - startTime;
                                 BunLogModule({
                                     prefix: LOG_PREFIX,
                                     message:
@@ -1133,6 +1212,7 @@ class WorldApiAssetManager {
                                         responseSize,
                                         contentType:
                                             row?.asset__mime_type || null,
+                                        durationMs,
                                     },
                                 });
                                 return this.addCorsHeaders(response, req);

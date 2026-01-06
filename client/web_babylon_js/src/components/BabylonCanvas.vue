@@ -4,7 +4,7 @@
     <!-- Engine Info Overlay -->
     <div v-if="readyScene" class="engine-info-overlay" aria-label="Engine info">
         <span class="engine-info-overlay__text">{{ engineTypeDisplay }} • Havok • {{ drawCalls }} calls • {{ vertexCount
-            }} verts • {{ currentFps }} FPS</span>
+        }} verts • {{ currentFps }} FPS</span>
     </div>
 
     <slot :scene="readyScene" :canvas="canvasRef">
@@ -21,7 +21,7 @@ import DRACO_DECODER_GLTF_WASM_URL from "@/assets/babylon_js/draco_decoder_gltf.
 import DRACO_WASM_WRAPPER_GLTF_JS_URL from "@/assets/babylon_js/draco_wasm_wrapper_gltf.js?url";
 
 // Define models for two-way binding
-const performanceMode = defineModel<"normal" | "low">("performanceMode", { default: "low" });
+const performanceMode = defineModel<"normal" | "low">("performanceMode", { default: "normal" });
 const renderLoopEnabled = defineModel<boolean>("renderLoopEnabled", { default: true });
 
 // Props for read-only values

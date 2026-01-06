@@ -189,7 +189,7 @@ export const useAppStore = defineStore("app", {
             ] as BabylonAnimationDefinition[],
         },
         // Performance mode configuration
-        performanceMode: "low" as "normal" | "low",
+        performanceMode: "normal" as "normal" | "low",
         targetFPS: 30, // Target FPS for low performance mode
 
         // Polling intervals configuration (in milliseconds)

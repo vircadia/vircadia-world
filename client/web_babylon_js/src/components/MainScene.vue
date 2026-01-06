@@ -76,7 +76,7 @@
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                         'mdi-speedometer-slow'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -111,7 +111,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                     <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="fly">
@@ -147,7 +147,7 @@
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                             'mdi-file-tree-outline'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -208,7 +208,7 @@
                                                 :agent-ui-max-transcripts="agentUiMaxTranscripts"
                                                 :agent-ui-max-assistant-replies="agentUiMaxAssistantReplies"
                                                 :agent-ui-max-conversation-items="agentUiMaxConversationItems"
-                                                :agent-company-name="agentCompanyName">
+                                                :agent-company-name="agentCompanyName" v-model:active="agentActive">
 
                                                 <template
                                                     #default="{ capabilitiesEnabled: agentCapabilities, agentSttWorking, agentTtsWorking, agentLlmWorking, ttsLevel, ttsTalking, ttsThreshold }">
@@ -252,10 +252,10 @@
                                                                     #default="{ physicsEnabled: envPhysicsEnabled, physicsPluginName: envPhysicsPluginName, physicsError: envPhysicsError, physicsEngineType: envPhysicsEngineType, physicsInitialized: envPhysicsInitialized, havokInstanceLoaded: envHavokInstanceLoaded, physicsPluginCreated: envPhysicsPluginCreated, gravity: sceneGravity }">
                                                                     <!-- BabylonMyAvatar component wrapped with MKB controller -->
                                                                     <BabylonMyAvatarMKBController :scene="providedScene"
-                                                                        :forward-codes="['KeyW', 'ArrowUp']"
-                                                                        :backward-codes="['KeyS', 'ArrowDown']"
-                                                                        :strafe-left-codes="['KeyA', 'ArrowLeft']"
-                                                                        :strafe-right-codes="['KeyD', 'ArrowRight']"
+                                                                        :forward-codes="['KeyW']"
+                                                                        :backward-codes="['KeyS']"
+                                                                        :strafe-left-codes="['KeyA']"
+                                                                        :strafe-right-codes="['KeyD']"
                                                                         :jump-codes="['Space']"
                                                                         :sprint-codes="['ShiftLeft', 'ShiftRight']"
                                                                         :dash-codes="[]" :turn-left-codes="['KeyQ']"
@@ -266,6 +266,7 @@
                                                                         :slow-run-toggle-codes="[]"
                                                                         :mouse-lock-camera-rotate-toggle-codes="['Digit1']"
                                                                         :mouse-lock-camera-avatar-rotate-toggle-codes="['Digit2']"
+                                                                        :initial-mouse-lock-camera-avatar-rotate="true"
                                                                         v-slot="controls">
                                                                         <!-- Camera Lock Alert -->
                                                                         <v-fade-transition>

@@ -39,6 +39,8 @@ const props = defineProps({
     slowRunToggleCodes: { type: Array as () => string[], required: true },
     mouseLockCameraRotateToggleCodes: { type: Array as () => string[], required: true },
     mouseLockCameraAvatarRotateToggleCodes: { type: Array as () => string[], required: true },
+    initialMouseLockCameraRotate: { type: Boolean, required: false, default: false },
+    initialMouseLockCameraAvatarRotate: { type: Boolean, required: false, default: false },
 });
 
 const focused = useWindowFocus();
@@ -76,8 +78,8 @@ const keyState = ref<KeyState>({
     crouch: false,
     prone: false,
     slowRun: false,
-    mouseLockCameraRotate: false,
-    mouseLockCameraAvatarRotate: false,
+    mouseLockCameraRotate: props.initialMouseLockCameraRotate,
+    mouseLockCameraAvatarRotate: props.initialMouseLockCameraAvatarRotate,
 });
 
 export interface PointerState {

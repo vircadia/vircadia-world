@@ -34,37 +34,30 @@
                 <v-row class="mb-3">
                     <v-col cols="12">
                         <v-card variant="outlined" class="pa-3">
-                            <div class="d-flex flex-wrap gap-3 align-center">
-                                <div class="d-flex align-center">
-                                    <v-icon class="mr-1">mdi-brain</v-icon>
-                                    <v-chip
-                                        :color="llmGenerating ? 'warning' : (capabilitiesEnabled.llm ? 'success' : 'error')"
-                                        size="small">
-                                        {{ llmGenerating ? 'Thinking' : capabilitiesEnabled.llm ? 'Ready' : 'Disabled'
-                                        }}
+                            <div class="d-flex flex-wrap gap-4 align-center">
+                                <v-chip
+                                    :color="llmGenerating ? 'warning' : (capabilitiesEnabled.llm ? 'success' : 'error')"
+                                    size="small" prepend-icon="mdi-brain">
+                                    {{ llmGenerating ? 'Thinking' : capabilitiesEnabled.llm ? 'Ready' : 'Disabled' }}
+                                </v-chip>
+                                <v-chip
+                                    :color="ttsGenerating ? 'warning' : (capabilitiesEnabled.tts ? 'success' : 'error')"
+                                    size="small" prepend-icon="mdi-volume-high">
+                                    {{ ttsGenerating ? 'Speaking' : capabilitiesEnabled.tts ? 'Ready' : 'Disabled' }}
+                                </v-chip>
+                                <v-chip :color="webrtcConnected ? 'success' : 'warning'" size="small"
+                                    prepend-icon="mdi-phone">
+                                    {{ webrtcConnected ? 'WebRTC' : 'No WebRTC' }}
+                                </v-chip>
+                                <div class="d-flex align-center gap-2">
+                                    <v-chip size="small" prepend-icon="mdi-waveform" color="secondary"
+                                        variant="outlined" class="px-2">
+                                        <v-progress-linear :model-value="rmsPct" color="secondary" height="4" rounded
+                                            style="min-width: 80px; max-width: 120px;" />
                                     </v-chip>
-                                </div>
-                                <div class="d-flex align-center">
-                                    <v-icon class="mr-1">mdi-volume-high</v-icon>
-                                    <v-chip
-                                        :color="ttsGenerating ? 'warning' : (capabilitiesEnabled.tts ? 'success' : 'error')"
-                                        size="small">
-                                        {{ ttsGenerating ? 'Speaking' : capabilitiesEnabled.tts ? 'Ready' : 'Disabled'
-                                        }}
+                                    <v-chip size="small" color="secondary">
+                                        {{ rmsLevel.toFixed(2) }}
                                     </v-chip>
-                                </div>
-                                <div class="d-flex align-center">
-                                    <v-icon class="mr-1">mdi-phone</v-icon>
-                                    <v-chip :color="webrtcConnected ? 'success' : 'warning'" size="small">
-                                        {{ webrtcConnected ? 'WebRTC' : 'No WebRTC' }}
-                                    </v-chip>
-                                </div>
-                                <div class="d-flex align-center">
-                                    <span class="text-caption text-medium-emphasis mr-2">RMS</span>
-                                    <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
-                                        class="flex-grow-1 min-w-[160px]" />
-                                    <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                        }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -143,18 +136,23 @@
                 <!-- Actions -->
                 <v-row class="mt-2">
                     <v-col cols="12">
-                        <div class="d-flex gap-2">
-                            <v-btn color="primary" variant="outlined" @click="testServerTTS" :loading="ttsGenerating"
-                                :disabled="!props.agentEnableTts || !capabilitiesEnabled.tts">
-                                <v-icon class="mr-1">mdi-volume-high</v-icon>
-                                Test Server TTS
+                        <div class="d-flex flex-wrap align-center gap-3">
+                            <v-switch v-model="agentActiveModel" hide-details density="compact" color="success"
+                                :label="agentActiveModel ? 'Agent Active' : 'Agent Inactive'" />
+                            <v-divider vertical class="mx-1" />
+                            <v-btn color="primary" variant="outlined" size="small" @click="testServerTTS"
+                                :loading="ttsGenerating"
+                                :disabled="!props.agentEnableTts || !capabilitiesEnabled.tts || !agentActiveModel">
+                                <v-icon size="small" class="mr-1">mdi-volume-high</v-icon>
+                                Test TTS
                             </v-btn>
-                            <v-btn color="primary" variant="outlined" @click="testServerLLM" :loading="llmGenerating"
-                                :disabled="!capabilitiesEnabled.llm">
-                                <v-icon class="mr-1">mdi-brain</v-icon>
-                                Test Server LLM
+                            <v-btn color="primary" variant="outlined" size="small" @click="testServerLLM"
+                                :loading="llmGenerating" :disabled="!capabilitiesEnabled.llm || !agentActiveModel">
+                                <v-icon size="small" class="mr-1">mdi-brain</v-icon>
+                                Test LLM
                             </v-btn>
-                            <v-btn color="secondary" variant="outlined" @click="overlayOpen = false">
+                            <v-spacer />
+                            <v-btn color="secondary" variant="outlined" size="small" @click="overlayOpen = false">
                                 Close
                             </v-btn>
                         </div>
@@ -259,6 +257,9 @@ const props = defineProps({
     agentUiMaxAssistantReplies: { type: Number, required: true },
     agentUiMaxConversationItems: { type: Number, required: true },
 });
+
+// Agent active v-model
+const agentActiveModel = defineModel<boolean>("active", { default: true });
 
 // Teleport
 const teleportTarget = inject<Ref<HTMLElement | null>>(

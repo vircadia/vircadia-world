@@ -130,6 +130,42 @@ export class WorldApiWsManager {
     private readonly ENTITY_CHANGE_CHANNEL = "entity_change";
     private readonly ENTITY_METADATA_CHANGE_CHANNEL = "entity_metadata_change";
 
+    private addCorsHeaders(response: Response, req: Request): Response {
+        const origin = req.headers.get("origin");
+
+        // Auto-allow localhost and 127.0.0.1 on any port for development
+        const isLocalhost = origin && isLocalhostOrigin(origin);
+
+        // Build allowed origins for production
+        const allowedOrigins = [
+            // Caddy domain
+            `https://${serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN}`,
+            `http://${serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN}`,
+        ];
+        // Add allowed origins from config
+        allowedOrigins.push(...serverConfiguration.VRCA_SERVER_ALLOWED_ORIGINS);
+
+        // Check if origin is allowed (localhost on any port OR in allowed list)
+        if (origin && (isLocalhost || allowedOrigins.includes(origin))) {
+            response.headers.set("Access-Control-Allow-Origin", origin);
+            response.headers.set("Access-Control-Allow-Credentials", "true");
+        } else {
+            // For non-matching origins, don't set credentials
+            // response.headers.set("Access-Control-Allow-Origin", "*");
+            // Note: We don't set Access-Control-Allow-Credentials for wildcard origins
+        }
+
+        response.headers.set(
+            "Access-Control-Allow-Methods",
+            "GET, POST, PUT, DELETE, OPTIONS",
+        );
+        response.headers.set(
+            "Access-Control-Allow-Headers",
+            "Content-Type, Authorization, X-Requested-With",
+        );
+        return response;
+    }
+
     private getReflectTopic(
         syncGroup: string,
         channel?: string | null,
@@ -1438,6 +1474,48 @@ export class WorldApiWsManager {
                     // Handle CORS preflight requests
                     if (req.method === "OPTIONS") {
                         const response = new Response(null, { status: 204 });
+                        return this.addCorsHeaders(response, req);
+                    }
+
+                    // Speed Test Download
+                    if (
+                        url.pathname === "/world/rest/ws/speedtest/download" &&
+                        req.method === "GET"
+                    ) {
+                        const sizeStr = url.searchParams.get("size");
+                        let size = sizeStr ? parseInt(sizeStr) : 10 * 1024 * 1024; // Default 10MB
+                        // Cap at 100MB to prevent abuse
+                        if (size > 100 * 1024 * 1024) size = 100 * 1024 * 1024;
+                        if (size < 0) size = 1024;
+
+                        const buffer = new Uint8Array(size); // Zero-filled by default
+                        
+                        const response = new Response(buffer, {
+                            status: 200,
+                            headers: {
+                                "Content-Type": "application/octet-stream",
+                                "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+                                "Pragma": "no-cache",
+                                "Expires": "0",
+                            }
+                        });
+                        return this.addCorsHeaders(response, req);
+                    }
+
+                    // Speed Test Upload
+                    if (
+                        url.pathname === "/world/rest/ws/speedtest/upload" &&
+                        req.method === "POST"
+                    ) {
+                        // Consume the body to ensure we measure the full upload time
+                        await req.arrayBuffer();
+                        
+                        const response = new Response(JSON.stringify({ status: "ok" }), {
+                            status: 200,
+                            headers: {
+                                "Content-Type": "application/json",
+                            }
+                        });
                         return this.addCorsHeaders(response, req);
                     }
 

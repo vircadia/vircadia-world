@@ -362,13 +362,14 @@
 
                                                                             <!-- Model slot -->
                                                                             <template
-                                                                                #model="{ avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel, animations, targetSkeleton, onAnimationState }">
+                                                                                #model="{ avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel, animations, targetSkeleton, onAnimationState, boneMapping }">
                                                                                 <BabylonMyAvatarModel
                                                                                     v-if="modelFileName"
                                                                                     :scene="providedScene"
                                                                                     :vircadia-world="vircadiaWorld"
                                                                                     :avatar-node="(avatarNode as TransformNode | null) || null"
                                                                                     :model-file-name="modelFileName"
+                                                                                    :model-url="avatarModelUrl"
                                                                                     :mesh-pivot-point="meshPivotPoint"
                                                                                     :capsule-height="capsuleHeight"
                                                                                     :on-set-avatar-model="onSetAvatarModel"
@@ -408,6 +409,7 @@
                                                                                         :vircadia-world="vircadiaWorld"
                                                                                         :animation="anim"
                                                                                         :target-skeleton="targetSkeleton"
+                                                                                        :bone-mapping="boneMapping"
                                                                                         @state="onAnimationState" />
 
                                                                                 </BabylonMyAvatarModel>
@@ -535,6 +537,9 @@
 import type { TransformNode } from "@babylonjs/core";
 import VoiceChatInput from "@/components/VoiceChatInput.vue";
 import ChatBubble from "@/components/ChatBubble.vue";
+
+// Import avatar model URL
+import avatarModelUrl from "@/assets/avatar/HatMan_Inprogress6.glb?url";
 
 import {
     clientBrowserConfiguration,

@@ -30,6 +30,13 @@ const props = defineProps({
         required: false,
         default: null,
     },
+    // Optional bone name mapping: source animation bone name -> target skeleton bone name
+    // Used when animations reference bones with different names than the target skeleton
+    boneMapping: {
+        type: Object as () => Record<string, string>,
+        required: false,
+        default: () => ({}),
+    },
 });
 
 const emit = defineEmits<{
@@ -119,6 +126,8 @@ async function load(): Promise<void> {
 
         // Retarget each animation group to the target skeleton's transform nodes/bones
         let selectedGroup: AnimationGroup | null = null;
+        const unmappedBones = new Set<string>(); // Track bones that couldn't be mapped
+
         if (targetSkeletonRef.value) {
             // Precompute maps for faster name lookups
             const targetSkeleton = targetSkeletonRef.value as Skeleton;
@@ -132,6 +141,10 @@ async function load(): Promise<void> {
                 const tn = b.getTransformNode();
                 if (tn) linkedNodeByName.set(tn.name, tn);
             }
+
+            // Log target skeleton bone names once for debugging
+            console.log(`[BabylonMyAvatarAnimation] ${props.animation.fileName} - Target skeleton bones:`,
+                Array.from(boneByName.keys()));
 
             for (const sourceGroup of result.animationGroups) {
                 const cloned = sourceGroup.clone(
@@ -152,12 +165,26 @@ async function load(): Promise<void> {
                             return null;
                         }
 
+                        // Apply bone mapping if provided - translate source bone name to target bone name
+                        const mappedName = props.boneMapping[originalName] ?? originalName;
+
                         // Prefer mapping to linked TransformNode with matching name
-                        const tn = linkedNodeByName.get(originalName);
+                        let tn = linkedNodeByName.get(mappedName);
                         if (tn) return tn;
                         // Fallback: map to bone with same name
-                        const bone = boneByName.get(originalName);
+                        let bone = boneByName.get(mappedName);
                         if (bone) return bone;
+
+                        // If mapping was applied but didn't find a match, try the original name as fallback
+                        if (mappedName !== originalName) {
+                            tn = linkedNodeByName.get(originalName);
+                            if (tn) return tn;
+                            bone = boneByName.get(originalName);
+                            if (bone) return bone;
+                        }
+
+                        // Track unmapped bones for debugging
+                        unmappedBones.add(originalName);
                         return null;
                     },
                 );
@@ -228,13 +255,40 @@ async function load(): Promise<void> {
                     }
                 }
 
-                if (cloned.targetedAnimations.length > 0 && !selectedGroup) {
-                    selectedGroup = cloned;
+                // Filter out targeted animations that have null targets
+                // This can happen when the source animation references bones not present in the target skeleton
+                const validTargetedAnimations = cloned.targetedAnimations.filter(
+                    (ta) => ta.target != null
+                );
+
+                // If we have valid animations, replace the cloned group's animations
+                if (validTargetedAnimations.length > 0) {
+                    // Create a new clean group with only valid targeted animations
+                    const cleanGroup = new (await import("@babylonjs/core")).AnimationGroup(
+                        cloned.name,
+                        props.scene
+                    );
+                    for (const ta of validTargetedAnimations) {
+                        cleanGroup.addTargetedAnimation(ta.animation, ta.target);
+                    }
+                    cloned.dispose();
+
+                    if (!selectedGroup) {
+                        selectedGroup = cleanGroup;
+                    } else {
+                        cleanGroup.dispose();
+                    }
                 } else {
                     cloned.dispose();
                 }
                 // Always dispose source group after cloning
                 sourceGroup.dispose();
+            }
+
+            // Log unmapped bones for debugging bone mapping
+            if (unmappedBones.size > 0) {
+                console.log(`[BabylonMyAvatarAnimation] ${props.animation.fileName} - Unmapped animation bones:`,
+                    Array.from(unmappedBones));
             }
         }
 

@@ -6,7 +6,7 @@
     <!-- Model slot - avatar model loading and animation components -->
     <slot name="model" :avatar-node="avatarNode" :model-file-name="modelFileName" :mesh-pivot-point="meshPivotPoint"
         :capsule-height="capsuleHeight" :on-set-avatar-model="onSetAvatarModel" :animations="animations"
-        :target-skeleton="avatarSkeleton" :on-animation-state="onAnimationState" />
+        :target-skeleton="avatarSkeleton" :on-animation-state="onAnimationState" :bone-mapping="boneMapping" />
 
     <!-- Other avatars slot - other avatar discovery and rendering -->
     <slot name="other-avatars" :scene="props.scene" :vircadia-world="vircadiaWorld" />
@@ -141,6 +141,9 @@ export type AvatarDefinition = {
     backWalkMultiplier: number;
     strafeMultiplier: number;
     strafeRunMultiplier: number;
+    // Optional bone name mapping: source animation bone name -> target skeleton bone name
+    // Used when animations reference bones with different names than the target skeleton
+    boneMapping?: Record<string, string>;
     // Physics character controller properties
     maxCastIterations: number;
     keepContactTolerance: number;
@@ -189,6 +192,10 @@ const up = computed(() => effectiveAvatarDef.value.up);
 
 const animations = computed(
     () => effectiveAvatarDef.value.animations as AnimationDef[],
+);
+
+const boneMapping = computed(
+    () => effectiveAvatarDef.value.boneMapping ?? {},
 );
 
 const fullSessionId = computed(

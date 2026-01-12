@@ -31,6 +31,8 @@ const props = defineProps({
         default: null,
     },
     modelFileName: { type: String, required: true },
+    // Optional direct URL to the model file (bypasses asset server URL construction)
+    modelUrl: { type: String, required: false, default: "" },
     meshPivotPoint: {
         type: String as () => "bottom" | "center",
         required: true,
@@ -122,9 +124,10 @@ async function loadAndAttach(): Promise<void> {
         details: { fileName: props.modelFileName },
     });
 
-    const directUrl = vircadiaWorld.client.buildAssetRequestUrl(
-        props.modelFileName,
-    );
+    // Use provided modelUrl if available, otherwise build from modelFileName
+    const directUrl = props.modelUrl
+        ? props.modelUrl
+        : vircadiaWorld.client.buildAssetRequestUrl(props.modelFileName);
     emit("state", {
         state: "loading",
         step: "importingMesh",

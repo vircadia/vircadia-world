@@ -37,6 +37,7 @@ const props = defineProps({
         type: String as () => "bottom" | "center",
         required: true,
     },
+
     capsuleHeight: { type: Number, required: true },
     onSetAvatarModel: {
         type: Function as unknown as () => (payload: {

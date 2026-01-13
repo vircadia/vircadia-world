@@ -49,39 +49,19 @@ export default defineConfig(({ command }) => {
             viteStaticCopy({
                 targets: [
                     {
-                        src: fileURLToPath(
-                            new URL(
-                                "../../node_modules/@ricky0123/vad-web/dist/vad.worklet.bundle.min.js",
-                                import.meta.url,
-                            ),
-                        ),
+                        src: "../../node_modules/@ricky0123/vad-web/dist/vad.worklet.bundle.min.js",
                         dest: "vad",
                     },
                     {
-                        src: fileURLToPath(
-                            new URL(
-                                "../../node_modules/@ricky0123/vad-web/dist/*.onnx",
-                                import.meta.url,
-                            ),
-                        ),
+                        src: "../../node_modules/@ricky0123/vad-web/dist/*.onnx",
                         dest: "vad",
                     },
                     {
-                        src: fileURLToPath(
-                            new URL(
-                                "../../node_modules/onnxruntime-web/dist/*.wasm",
-                                import.meta.url,
-                            ),
-                        ),
+                        src: "../../node_modules/onnxruntime-web/dist/*.wasm",
                         dest: "vad",
                     },
                     {
-                        src: fileURLToPath(
-                            new URL(
-                                "../../node_modules/onnxruntime-web/dist/*.mjs",
-                                import.meta.url,
-                            ),
-                        ),
+                        src: "../../node_modules/onnxruntime-web/dist/*.mjs",
                         dest: "vad",
                     },
                 ],

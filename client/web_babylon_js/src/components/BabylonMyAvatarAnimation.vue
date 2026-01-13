@@ -103,7 +103,7 @@ async function load(): Promise<void> {
 
     await waitForSlot();
     try {
-        const directUrl = props.vircadiaWorld.client.buildAssetRequestUrl(
+        const directUrl = props.animation.fileUrl || props.vircadiaWorld.client.buildAssetRequestUrl(
             props.animation.fileName,
         );
         const ext = (() => {
@@ -252,6 +252,33 @@ async function load(): Promise<void> {
                                 }
                             }
                         } catch { }
+                    }
+                }
+
+                // If requested, strip scaling from all bones
+                if (props.animation.ignoreScale) {
+                    for (const ta of cloned.targetedAnimations) {
+                        const property = ta.animation?.targetProperty ?? "";
+                        if (property === "scaling") {
+                            // Strip scaling animation entirely by clearing keys or setting to identity
+                            // Or better: modify keys to be 1,1,1
+                            const keys = ta.animation?.getKeys?.();
+                            if (keys && keys.length > 0) {
+                                for (const k of keys as Array<{
+                                    value: {
+                                        x?: number;
+                                        y?: number;
+                                        z?: number;
+                                    };
+                                }>) {
+                                    if (typeof k.value.x === "number") k.value.x = 1;
+                                    if (typeof k.value.y === "number") k.value.y = 1;
+                                    if (typeof k.value.z === "number") k.value.z = 1;
+                                }
+                            }
+                        } else if (property === "matrix") {
+                            // Handling matrix scale stripping is complex; often "scaling" property is used
+                        }
                     }
                 }
 

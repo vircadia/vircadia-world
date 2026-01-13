@@ -76,7 +76,7 @@
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                         'mdi-speedometer-slow'
-                                        }}</v-icon>
+                                    }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -111,7 +111,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                     <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                        }}</v-icon>
+                                    }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="fly">
@@ -147,7 +147,7 @@
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                             'mdi-file-tree-outline'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -539,7 +539,7 @@ import VoiceChatInput from "@/components/VoiceChatInput.vue";
 import ChatBubble from "@/components/ChatBubble.vue";
 
 // Import avatar model URL
-import avatarModelUrl from "@/assets/avatar/HatMan_Inprogress6.glb?url";
+import avatarModelUrl from "@/assets/avatar/HatMan_Inprogress13_normalizedWeights.glb?url";
 
 import {
     clientBrowserConfiguration,
@@ -599,6 +599,7 @@ import type {
     AvatarPositionData,
     AvatarRotationData,
     ChatMessage,
+    BabylonAnimationDefinition,
 } from "@/schemas";
 
 // isAutonomousAgent now comes from browser state via URL parameter detection
@@ -942,14 +943,27 @@ const activeUserCount = computed(() => webrtcPeersMap.value.size);
 
 const physicsRef = ref<InstanceType<typeof BabylonPhysics> | null>(null);
 
+// Import all animation assets
+const animationAssets = import.meta.glob("@/assets/animation/*.glb", {
+    eager: true,
+    query: "?url",
+    import: "default",
+}) as Record<string, string>;
+
+function getAnimationUrl(fileName: string): string | undefined {
+    // Try to find the file in the imported assets
+    // Keys are like "/src/assets/animation/filename.glb"
+    const key = Object.keys(animationAssets).find((k) => k.endsWith(fileName));
+    return key ? animationAssets[key] : undefined;
+}
+
 // Avatar definition is now provided locally instead of DB
 const avatarDefinition: AvatarDefinition = {
     initialAvatarPosition: { x: 0, y: 32, z: 0 },
     initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
     modelFileName: "babylon.avatar.glb",
     meshPivotPoint: "bottom",
-    throttleInterval: 500,
-    capsuleHeight: 1.8,
+    capsuleHeight: 2.3,
     capsuleRadius: 0.3,
     slopeLimit: 45,
     jumpSpeed: 5,
@@ -980,192 +994,199 @@ const avatarDefinition: AvatarDefinition = {
     up: { x: 0, y: 1, z: 0 }, // up vector
     animations: [
         {
-            fileName: "babylon.avatar.animation.f.idle.1.glb",
+            fileName: "babylon.avatar.animation.m.idle.1.glb",
             slMotion: "stand",
         },
         {
-            fileName: "babylon.avatar.animation.f.idle.2.glb",
+            fileName: "babylon.avatar.animation.m.idle.2.glb",
             slMotion: "stand",
         },
         {
-            fileName: "babylon.avatar.animation.f.idle.3.glb",
+            fileName: "babylon.avatar.animation.m.idle.3.glb",
             slMotion: "stand",
         },
         {
-            fileName: "babylon.avatar.animation.f.idle.4.glb",
+            fileName: "babylon.avatar.animation.m.idle.4.glb",
             slMotion: "stand",
         },
         {
-            fileName: "babylon.avatar.animation.f.idle.5.glb",
+            fileName: "babylon.avatar.animation.m.idle.5.glb",
             slMotion: "stand",
         },
         {
-            fileName: "babylon.avatar.animation.f.idle.6.glb",
+            fileName: "babylon.avatar.animation.m.idle.6.glb",
             slMotion: "stand",
         },
         {
-            fileName: "babylon.avatar.animation.f.idle.7.glb",
+            fileName: "babylon.avatar.animation.m.idle.7.glb",
             slMotion: "stand",
         },
         {
-            fileName: "babylon.avatar.animation.f.idle.8.glb",
+            fileName: "babylon.avatar.animation.m.idle.8.glb",
             slMotion: "stand",
         },
         {
-            fileName: "babylon.avatar.animation.f.idle.9.glb",
+            fileName: "babylon.avatar.animation.m.idle.9.glb",
             slMotion: "stand",
         },
         {
-            fileName: "babylon.avatar.animation.f.idle.10.glb",
+            fileName: "babylon.avatar.animation.m.idle.10.glb",
             slMotion: "stand",
         },
         {
-            fileName: "babylon.avatar.animation.f.walk.1.glb",
+            fileName: "babylon.avatar.animation.m.walk.1.glb",
             slMotion: "walk",
             direction: "forward",
+            ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.walk.2.glb",
+            fileName: "babylon.avatar.animation.m.walk.2.glb",
             slMotion: "walk",
             direction: "forward",
+            ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.crouch_strafe_left.glb",
+            fileName: "babylon.avatar.animation.m.crouch_strafe_left.glb",
             slMotion: "crouchwalk",
             direction: "left",
             ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.crouch_strafe_right.glb",
+            fileName: "babylon.avatar.animation.m.crouch_strafe_right.glb",
             slMotion: "crouchwalk",
             direction: "right",
             ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.crouch_walk_back.glb",
+            fileName: "babylon.avatar.animation.m.crouch_walk_back.glb",
             slMotion: "crouchwalk",
             direction: "back",
             ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.crouch_walk.glb",
+            fileName: "babylon.avatar.animation.m.crouch_walk.glb",
             slMotion: "crouchwalk",
             direction: "forward",
         },
         {
-            fileName: "babylon.avatar.animation.f.falling_idle.1.glb",
+            fileName: "babylon.avatar.animation.m.falling_idle.1.glb",
             slMotion: "falling",
+            ignoreScale: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.falling_idle.2.glb",
+            fileName: "babylon.avatar.animation.m.falling_idle.2.glb",
             slMotion: "falling",
+            ignoreScale: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.jog_back.glb",
+            fileName: "babylon.avatar.animation.m.jog_back.glb",
             slMotion: "run",
             direction: "back",
             variant: "jog",
             ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.jog.glb",
+            fileName: "babylon.avatar.animation.m.jog.glb",
             slMotion: "run",
             direction: "forward",
             variant: "jog",
             ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.jump_small.glb",
+            fileName: "babylon.avatar.animation.m.jump_small.glb",
             slMotion: "jump",
+            ignoreScale: true,
         },
-        { fileName: "babylon.avatar.animation.f.jump.glb", slMotion: "jump" },
+        { fileName: "babylon.avatar.animation.m.jump.glb", slMotion: "jump", ignoreScale: true },
         {
-            fileName: "babylon.avatar.animation.f.run_back.glb",
+            fileName: "babylon.avatar.animation.m.run_back.glb",
             slMotion: "run",
             direction: "back",
             ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.run_strafe_left.glb",
+            fileName: "babylon.avatar.animation.m.run_strafe_left.glb",
             slMotion: "run",
             direction: "left",
             ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.run_strafe_right.glb",
+            fileName: "babylon.avatar.animation.m.run_strafe_right.glb",
             slMotion: "run",
             direction: "right",
             ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.run.glb",
+            fileName: "babylon.avatar.animation.m.run.glb",
             slMotion: "run",
             direction: "forward",
             ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.strafe_left.glb",
+            fileName: "babylon.avatar.animation.m.strafe_left.glb",
             slMotion: "walk",
             direction: "left",
             ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.strafe_right.glb",
+            fileName: "babylon.avatar.animation.m.strafe_right.glb",
             slMotion: "walk",
             direction: "right",
             ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.talking.1.glb",
+            fileName: "babylon.avatar.animation.m.talking.1.glb",
             slMotion: "talk",
         },
         {
-            fileName: "babylon.avatar.animation.f.talking.2.glb",
+            fileName: "babylon.avatar.animation.m.talking.2.glb",
             slMotion: "talk",
         },
         {
-            fileName: "babylon.avatar.animation.f.talking.3.glb",
+            fileName: "babylon.avatar.animation.m.talking.3.glb",
             slMotion: "talk",
         },
         {
-            fileName: "babylon.avatar.animation.f.talking.4.glb",
+            fileName: "babylon.avatar.animation.m.talking.4.glb",
             slMotion: "talk",
         },
         {
-            fileName: "babylon.avatar.animation.f.talking.5.glb",
+            fileName: "babylon.avatar.animation.m.talking.5.glb",
             slMotion: "talk",
         },
         {
-            fileName: "babylon.avatar.animation.f.talking.6.glb",
+            fileName: "babylon.avatar.animation.m.talking.6.glb",
             slMotion: "talk",
         },
         {
-            fileName: "babylon.avatar.animation.f.walk_back.glb",
+            fileName: "babylon.avatar.animation.m.walk_back.glb",
             slMotion: "walk",
             direction: "back",
             ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.walk_jump.1.glb",
+            fileName: "babylon.avatar.animation.m.walk_jump.1.glb",
             slMotion: "jump",
+            ignoreScale: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.walk_jump.2.glb",
+            fileName: "babylon.avatar.animation.m.walk_jump.2.glb",
             slMotion: "jump",
+            ignoreScale: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.walk_strafe_left.glb",
+            fileName: "babylon.avatar.animation.m.walk_strafe_left.glb",
             slMotion: "walk",
             direction: "left",
             ignoreHipTranslation: true,
         },
         {
-            fileName: "babylon.avatar.animation.f.walk_strafe_right.glb",
+            fileName: "babylon.avatar.animation.m.walk_strafe_right.glb",
             slMotion: "walk",
             direction: "right",
             ignoreHipTranslation: true,
         },
-    ],
+    ].map((a) => ({ ...a, fileUrl: getAnimationUrl(a.fileName) })) as BabylonAnimationDefinition[],
 };
 
 // Physics error now comes from BabylonEnvironment slot props (envPhysicsError)

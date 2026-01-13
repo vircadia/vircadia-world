@@ -61,8 +61,11 @@ export interface BabylonModelDefinition {
 export interface BabylonAnimationDefinition {
     /** Filename of the animation file (e.g. 'walk.glb') */
     fileName: string;
-    /** If true, strip horizontal (X/Z) translation from hip/root track during mapping */
     ignoreHipTranslation?: boolean;
+    /** If true, strip scale keys from mapping (forces scale to 1,1,1) */
+    ignoreScale?: boolean;
+    /** Direct URL to the animation file (if loaded from client bundle) */
+    fileUrl?: string;
 }
 
 export type AnimationState = "idle" | "loading" | "ready" | "error";

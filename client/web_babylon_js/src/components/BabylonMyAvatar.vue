@@ -117,12 +117,14 @@ export type AnimationDef = {
     direction?: Direction;
     variant?: string;
     ignoreHipTranslation?: boolean;
+    ignoreScale?: boolean;
 };
 export type AvatarDefinition = {
     initialAvatarPosition: { x: number; y: number; z: number };
     initialAvatarRotation: { x: number; y: number; z: number; w: number };
     modelFileName: string;
     meshPivotPoint: "bottom" | "center";
+
     throttleInterval: number;
     capsuleHeight: number;
     capsuleRadius: number;

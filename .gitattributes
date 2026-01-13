@@ -1,15 +1,45 @@
 # Track all files in the asset directory with Git LFS
 cli/database/seed/asset/** filter=lfs diff=lfs merge=lfs -text
-# Track all model and world related files with Git LFS
-**/*.gltf filter=lfs diff=lfs merge=lfs -text
-**/*.glb filter=lfs diff=lfs merge=lfs -text
-**/*.jpg filter=lfs diff=lfs merge=lfs -text
-**/*.png filter=lfs diff=lfs merge=lfs -text
-**/*.jpeg filter=lfs diff=lfs merge=lfs -text
-**/*.hdr filter=lfs diff=lfs merge=lfs -text
-**/*.exr filter=lfs diff=lfs merge=lfs -text
-**/*.env filter=lfs diff=lfs merge=lfs -text
+
 # Compiled & WASM files
 **/*.wasm filter=lfs diff=lfs merge=lfs -text
 **/*.js filter=lfs diff=lfs merge=lfs -text
 
+# Track all GLB files with Git LFS
+**/*.glb filter=lfs diff=lfs merge=lfs -text
+**/*.gltf filter=lfs diff=lfs merge=lfs -text
+**/*.hdr filter=lfs diff=lfs merge=lfs -text
+**/*.exr filter=lfs diff=lfs merge=lfs -text
+**/*.env filter=lfs diff=lfs merge=lfs -text
+**/*.obj filter=lfs diff=lfs merge=lfs -text
+**/*.fbx filter=lfs diff=lfs merge=lfs -text
+
+# Textures
+**/*.png filter=lfs diff=lfs merge=lfs -text
+**/*.jpg filter=lfs diff=lfs merge=lfs -text
+**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+**/*.webp filter=lfs diff=lfs merge=lfs -text
+**/*.gif filter=lfs diff=lfs merge=lfs -text
+**/*.svg filter=lfs diff=lfs merge=lfs -text
+**/*.ico filter=lfs diff=lfs merge=lfs -text
+**/*.bmp filter=lfs diff=lfs merge=lfs -text
+**/*.tiff filter=lfs diff=lfs merge=lfs -text
+**/*.tif filter=lfs diff=lfs merge=lfs -text
+**/*.heic filter=lfs diff=lfs merge=lfs -text
+
+# Fonts
+**/*.woff filter=lfs diff=lfs merge=lfs -text
+**/*.woff2 filter=lfs diff=lfs merge=lfs -text
+**/*.ttf filter=lfs diff=lfs merge=lfs -text
+**/*.otf filter=lfs diff=lfs merge=lfs -text
+**/*.eot filter=lfs diff=lfs merge=lfs -text
+**/*.svg filter=lfs diff=lfs merge=lfs -text
+**/*.ico filter=lfs diff=lfs merge=lfs -text
+**/*.bmp filter=lfs diff=lfs merge=lfs -text
+**/*.tiff filter=lfs diff=lfs merge=lfs -text
+**/*.tif filter=lfs diff=lfs merge=lfs -text
+**/*.heic filter=lfs diff=lfs merge=lfs -text
+
+# Audio
+**/*.wav filter=lfs diff=lfs merge=lfs -text
+**/*.mp3 filter=lfs diff=lfs merge=lfs -text

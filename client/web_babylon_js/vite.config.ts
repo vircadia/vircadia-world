@@ -88,22 +88,18 @@ export default defineConfig(({ command }) => {
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE,
             ),
             __USER_COMPONENTS_ROOT__: JSON.stringify(resolvedUserComponentsDir),
-            __USER_COMPONENTS_RELATIVE_PATH__: JSON.stringify(
-                resolvedUserComponentsDir.startsWith(
-                    fileURLToPath(new URL(".", import.meta.url)).replace(
-                        /\/$/,
-                        "",
-                    ),
-                )
-                    ? resolvedUserComponentsDir.replace(
-                          fileURLToPath(new URL(".", import.meta.url)).replace(
-                              /\/$/,
-                              "",
-                          ),
-                          "",
-                      )
-                    : "",
-            ),
+            __USER_COMPONENTS_RELATIVE_PATH__: JSON.stringify((() => {
+                // Normalize paths to use forward slashes for cross-platform compatibility
+                const normalizeSlashes = (p: string) => p.replace(/\\/g, "/");
+                const basePath = normalizeSlashes(
+                    fileURLToPath(new URL(".", import.meta.url))
+                ).replace(/\/$/, "");
+                const resolvedPath = normalizeSlashes(resolvedUserComponentsDir);
+                
+                return resolvedPath.startsWith(basePath)
+                    ? resolvedPath.replace(basePath, "")
+                    : "";
+            })()),
             global: "globalThis",
         },
         resolve: {

@@ -69,7 +69,8 @@
             "cli": {
                 "@inquirer/prompts": "^7.5.3",
                 "cross-env": "^10.1.0",
-                "dotenv": "^17.2.2"
+                "dotenv": "^17.2.2",
+                "rimraf": "^6.0.1"
             },
             "ml": {
                 "@huggingface/transformers": "^3.7.5",

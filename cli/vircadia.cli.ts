@@ -2924,7 +2924,13 @@ if (import.meta.main) {
                         process.env.VRCA_SERVER_SERVICE_CADDY_TLS_MODE ||
                         serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_MODE;
 
-
+                    const currentCaddyDomain =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_CADDY_DOMAIN",
+                            "cli",
+                        )) ||
+                        process.env.VRCA_SERVER_SERVICE_CADDY_DOMAIN ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN;
 
                     // Model Definitions configuration has been removed
 
@@ -3066,6 +3072,12 @@ if (import.meta.main) {
                                 value: "caddy-tls-api",
                                 description:
                                     "Configure TLS for the API domain. Use 'tls internal' for internal CA or leave empty for ACME.",
+                            },
+                            {
+                                name: `Caddy Domain(s)\n    Current: ${currentCaddyDomain}`,
+                                value: "caddy-domain",
+                                description:
+                                    "The domain(s) that Caddy binds on. Supports multiple domains separated by commas (e.g., 'example.com, www.example.com').",
                             },
 
                             new Separator("==================="),
@@ -4027,6 +4039,57 @@ if (import.meta.main) {
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
                         }
+                    } else if (configOption === "caddy-domain") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Caddy Domain(s)?\n",
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyDomain}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newDomain = await input({
+                                message:
+                                    "Enter Caddy Domain(s) (comma-separated for multiple, e.g., 'example.com, www.example.com'):",
+                                default: currentCaddyDomain,
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN",
+                                newDomain,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Caddy Domain(s) set to: ${newDomain} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Caddy Domain(s) variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
                     } else if (configOption === "view-all") {
                         BunLogModule({
                             message: "Current Configuration:",
@@ -4059,7 +4122,9 @@ if (import.meta.main) {
                         console.log(
                             `  TLS Mode: ${currentCaddyTlsApi || "Default (SSL enabled)"}`,
                         );
-
+                        console.log(
+                            `  Domain(s): ${currentCaddyDomain}`,
+                        );
 
                         console.log(`\n\nCLI Configuration:`);
                         console.log(

@@ -295,9 +295,35 @@ async function load(): Promise<void> {
                         cloned.name,
                         props.scene
                     );
+
+                    let strippedPositionCount = 0;
                     for (const ta of validTargetedAnimations) {
+                        const targetName = ((ta.target as any)?.name || "").toLowerCase();
+                        const isRootBone =
+                            targetName === "hips" ||
+                            targetName.includes("hip") ||
+                            targetName.includes("pelvis") ||
+                            targetName === "root" ||
+                            targetName.includes("__root__");
+
+                        // CRITICAL FIX: Strip position animations from non-root bones
+                        // Since animations were made from empties with absolute world positions,
+                        // they don't work with skeletal hierarchies where child positions
+                        // should be derived from parent rotations + bone lengths
+                        if (ta.animation && ta.animation.targetProperty === "position" && !isRootBone) {
+                            // Skip this animation - don't add it to the group
+                            // This removes position animations from head, neck, spine, etc.
+                            strippedPositionCount++;
+                            continue;
+                        }
+
                         cleanGroup.addTargetedAnimation(ta.animation, ta.target);
                     }
+
+                    if (strippedPositionCount > 0) {
+                        console.log(`[BabylonMyAvatarAnimation] ${props.animation.fileName}: Stripped ${strippedPositionCount} position animations from non-root bones`);
+                    }
+
                     cloned.dispose();
 
                     if (!selectedGroup) {

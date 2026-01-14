@@ -4,9 +4,10 @@
         :avatar-definition="props.avatarDefinition" :onEntityDataLoaded="onEntityDataLoaded" />
 
     <!-- Model slot - avatar model loading and animation components -->
-    <slot name="model" :avatar-node="avatarNode" :model-file-name="modelFileName" :mesh-pivot-point="meshPivotPoint"
-        :capsule-height="capsuleHeight" :on-set-avatar-model="onSetAvatarModel" :animations="animations"
-        :target-skeleton="avatarSkeleton" :on-animation-state="onAnimationState" :bone-mapping="boneMapping" />
+    <slot name="model" :avatar-node="avatarNode" :model-file-name="modelFileName" :model-url="modelUrl"
+        :mesh-pivot-point="meshPivotPoint" :capsule-height="capsuleHeight" :on-set-avatar-model="onSetAvatarModel"
+        :animations="animations" :target-skeleton="avatarSkeleton" :on-animation-state="onAnimationState"
+        :bone-mapping="boneMapping" />
 
     <!-- Other avatars slot - other avatar discovery and rendering -->
     <slot name="other-avatars" :scene="props.scene" :vircadia-world="vircadiaWorld" />
@@ -123,6 +124,7 @@ export type AvatarDefinition = {
     initialAvatarPosition: { x: number; y: number; z: number };
     initialAvatarRotation: { x: number; y: number; z: number; w: number };
     modelFileName: string;
+    modelUrl?: string; // Optional direct URL to the model file (bypasses asset server URL construction)
     meshPivotPoint: "bottom" | "center";
 
     throttleInterval: number;
@@ -179,6 +181,7 @@ const turnSpeed = computed(() => effectiveAvatarDef.value.turnSpeed);
 const blendDuration = computed(() => effectiveAvatarDef.value.blendDuration);
 const meshPivotPoint = computed(() => effectiveAvatarDef.value.meshPivotPoint);
 const modelFileName = computed(() => effectiveAvatarDef.value.modelFileName);
+const modelUrl = computed(() => effectiveAvatarDef.value.modelUrl);
 const maxCastIterations = computed(() => effectiveAvatarDef.value.maxCastIterations);
 const keepContactTolerance = computed(() => effectiveAvatarDef.value.keepContactTolerance);
 const keepDistance = computed(() => effectiveAvatarDef.value.keepDistance);

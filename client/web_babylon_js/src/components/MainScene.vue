@@ -76,7 +76,7 @@
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                         'mdi-speedometer-slow'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -111,7 +111,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                     <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="fly">
@@ -147,7 +147,7 @@
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                             'mdi-file-tree-outline'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -362,14 +362,14 @@
 
                                                                             <!-- Model slot -->
                                                                             <template
-                                                                                #model="{ avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel, animations, targetSkeleton, onAnimationState, boneMapping }">
+                                                                                #model="{ avatarNode, modelFileName, modelUrl, meshPivotPoint, capsuleHeight, onSetAvatarModel, animations, targetSkeleton, onAnimationState, boneMapping }">
                                                                                 <BabylonMyAvatarModel
                                                                                     v-if="modelFileName"
                                                                                     :scene="providedScene"
                                                                                     :vircadia-world="vircadiaWorld"
                                                                                     :avatar-node="(avatarNode as TransformNode | null) || null"
                                                                                     :model-file-name="modelFileName"
-                                                                                    :model-url="avatarModelUrl"
+                                                                                    :model-url="modelUrl"
                                                                                     :mesh-pivot-point="meshPivotPoint"
                                                                                     :capsule-height="capsuleHeight"
                                                                                     :on-set-avatar-model="onSetAvatarModel"
@@ -962,6 +962,7 @@ const avatarDefinition: AvatarDefinition = {
     initialAvatarPosition: { x: 0, y: 32, z: 0 },
     initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
     modelFileName: "babylon.avatar.glb",
+    modelUrl: avatarModelUrl,
     meshPivotPoint: "bottom",
     capsuleHeight: 2.3,
     capsuleRadius: 0.3,

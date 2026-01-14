@@ -5,8 +5,6 @@
 </template>
 
 <script setup lang="ts">
-// FIXME: Needs a teardown. Other similar components probably do need as well.
-
 import type {
     AbstractMesh,
     AnimationGroup,
@@ -14,7 +12,7 @@ import type {
     Skeleton,
 } from "@babylonjs/core";
 import { ImportMeshAsync, type TransformNode } from "@babylonjs/core";
-import { onMounted, type Ref, ref, watch } from "vue";
+import { onMounted, onUnmounted, type Ref, ref, watch } from "vue";
 import "@babylonjs/loaders/glTF";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 import type { AnimationState } from "@/schemas";
@@ -99,8 +97,45 @@ function extensionFromFileName(fileName: string): string {
     }
 }
 
+/**
+ * Dispose of previously loaded meshes and skeleton to prevent double loading.
+ * This must be called before loading a new model.
+ */
+function disposePreviousModel(): void {
+    // Dispose loaded meshes
+    if (loadedMeshes.value.length > 0) {
+        console.log(
+            `[BabylonMyAvatarModel] Disposing ${loadedMeshes.value.length} previous meshes`,
+        );
+        for (const mesh of loadedMeshes.value) {
+            try {
+                mesh.dispose(false, true); // dispose mesh and its materials
+            } catch (e) {
+                console.warn("[BabylonMyAvatarModel] Error disposing mesh:", e);
+            }
+        }
+        loadedMeshes.value = [];
+    }
+
+    // Dispose skeleton
+    if (targetSkeleton.value) {
+        try {
+            targetSkeleton.value.dispose();
+        } catch (e) {
+            console.warn("[BabylonMyAvatarModel] Error disposing skeleton:", e);
+        }
+        targetSkeleton.value = null;
+    }
+
+    // Reset attachment state
+    hasAttachedToAvatarNode.value = false;
+}
+
 async function loadAndAttach(): Promise<void> {
-    // Avoid duplicate loads
+    // Dispose previous model before loading new one
+    disposePreviousModel();
+
+    // Avoid loading if missing requirements
     if (!props.scene || !props.modelFileName) {
         console.warn("[BabylonMyAvatarModel] Missing scene or modelFileName", {
             hasScene: !!props.scene,
@@ -267,6 +302,12 @@ watch(
     },
     { immediate: true },
 );
+
+// Clean up on unmount to prevent memory leaks
+onUnmounted(() => {
+    console.log("[BabylonMyAvatarModel] Unmounting, disposing model");
+    disposePreviousModel();
+});
 
 defineExpose({ targetSkeleton });
 </script>

@@ -154,6 +154,43 @@ bun cli upgrade --clean           # Full rebuild (wipes data)
 
 ---
 
+## Operation Sequencing & Dependencies
+
+The new CLI must respect strict ordering requirements, particularly for `server:init` and database operations, as defined in the current `package.json`.
+
+### Service Dependencies
+Services will be defined with priorities or dependencies in `service.registry.ts` to ensure correct start/stop order.
+
+| Service | Dependency / Order | Reason |
+|---------|--------------------|--------|
+| `postgres` | **Priority 0** (First Up, Last Down) | All other services depend on the DB. |
+| `sdk` | **Build Priority 0** | Must be built before services that import it. |
+| `api-*`, `state` | **Priority 10** (After DB) | Cannot function without DB. |
+| `caddy` | **Priority 20** (Last Up) | Ingress should open only when upstreams are ready. |
+
+### Complex Workflows
+
+**Initialization (`init`) Sequence:**
+1. **Install & Build SDK**: `sdk` install -> `sdk` build
+2. **Install Repo**: `repo` install
+3. **Build Services**: `api-*`, `state`, `pgweb`
+4. **Start Database**: `postgres` up
+5. **Wait for Health**: `postgres` health check
+6. **Database Setup**: `migrate` -> `seed:sql` -> `seed:assets` -> `mark-as-ready`
+7. **Start Application Services**: `api-*`, `state`, `pgweb` up
+
+**Maintenance (Backup/Restore/Wipe):**
+1. **Stop Consumers**: `api-*`, `state`, `pgweb` down
+2. **Perform Operation**: `backup` / `restore` / `wipe` on `postgres`
+3. **Restart Consumers**: `api-*`, `state`, `pgweb` up (if they were running)
+
+**Refactoring Implication:**
+The `Command Parser` or `Action Handlers` must be capable of:
+*   Topological sort or priority-based execution for `up`/`down`.
+*   executing "pre-hooks" or "post-hooks" for specific actions (e.g., `db:restore` pre-hook = stop apps).
+
+---
+
 ## Proposed File Structure
 
 ```

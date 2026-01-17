@@ -72,15 +72,7 @@ export const SERVICES: ServiceDefinition[] = [
         dependencies: ["postgres"],
         startPriority: 10,
     },
-    {
-        name: "state",
-        aliases: ["state-manager"],
-        description: "World State Manager",
-        category: "core",
-        containerName: "vircadia_world_state_manager",
-        dependencies: ["postgres", "api-ws"],
-        startPriority: 10,
-    },
+
     {
         name: "client",
         aliases: ["web"],
@@ -110,10 +102,10 @@ export const SERVICES: ServiceDefinition[] = [
 
 export const GROUPS: Record<string, string[]> = {
     all: SERVICES.map((s) => s.name),
-    core: ["postgres", "pgweb", "ws", "auth", "asset", "inference", "state"],
+    core: ["postgres", "pgweb", "ws", "auth", "asset", "inference"],
     api: ["ws", "auth", "asset", "inference"],
     infra: ["postgres", "pgweb", "caddy"],
-    server: ["postgres", "pgweb", "ws", "auth", "asset", "inference", "state"],
+    server: ["postgres", "pgweb", "ws", "auth", "asset", "inference"],
 };
 
 export function resolveServices(input: string[]): ServiceDefinition[] {

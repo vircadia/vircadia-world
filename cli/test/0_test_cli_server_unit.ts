@@ -149,7 +149,6 @@ describe("Container ops tests", () => {
                 "down",
                 Service.E_Service.PGWEB,
                 Service.E_Service.WORLD_API_MANAGER,
-                Service.E_Service.WORLD_STATE_MANAGER,
             );
 
             await runCliCommand("server:postgres:wipe");

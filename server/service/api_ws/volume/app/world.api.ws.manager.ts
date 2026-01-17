@@ -16,6 +16,7 @@ import {
     Communication,
 } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { MetricsCollector } from "./service/metrics";
+import { GameLoopManager } from "./world.game.loop.manager";
 
 let legacySuperUserSql: Sql | null = null;
 // Note: legacyProxyUserSql kept for parity, currently unused
@@ -109,6 +110,9 @@ export class WorldApiWsManager {
         string,
         Map<string, Map<string, ReflectQueuedItem>>
     > = new Map();
+    
+    // Game Loops: syncGroup -> GameLoopManager
+    private gameLoops: Map<string, GameLoopManager> = new Map();
 
     // Entity tick-gated delivery queue: syncGroup -> entityName -> queued entity notifications
     private entityQueues: Map<
@@ -602,6 +606,23 @@ export class WorldApiWsManager {
                         enabled,
                     },
                 });
+
+                // Initialize Game Loop for this Sync Group
+                const gameLoop = new GameLoopManager(
+                    syncGroup,
+                    // Broadcast Callback
+                    (message: string) => {
+                        this.server?.publish(this.getReflectTopic(syncGroup), message);
+                    },
+                    // Persist Callback (Stub)
+                    async (entities) => {
+                       // Logic to save to DB goes here
+                       // console.log(`Persisting ${entities.length} entities for ${syncGroup}`);
+                    },
+                    16 // 16ms = ~60Hz
+                );
+                gameLoop.start();
+                this.gameLoops.set(syncGroup, gameLoop);
 
                 const ticker = setInterval(() => {
                     this.flushTickQueues(syncGroup).catch((error) => {
@@ -3109,7 +3130,28 @@ export class WorldApiWsManager {
                                 break;
                             }
 
+                            case Communication.WebSocket.MessageType.GAME_INPUT: {
+                                const gameInput = data as Communication.WebSocket.GameInputMessage;
+                                // Determine SyncGroup - for now, assuming 1 active game session per agent or 'default'
+                                // In a real scenario, the client should probably send the SyncGroup in the header or the session should map to one.
+                                // For this prototype, we'll iterate or use a fixed one.
+                                const syncGroup = "default"; // TODO: Resolver logic
+
+                                const gameLoop = this.gameLoops.get(syncGroup);
+                                if (gameLoop) {
+                                    const session = this.activeSessions.get(ws.data.sessionId);
+                                    if (session) {
+                                        gameLoop.handleInput(session, gameInput);
+                                    }
+                                }
+                                break;
+                            }
+
                             default: {
+                                // Catch-all: Route unknown messages to the Game Loop if possible
+                                // This requires identifying the target SyncGroup.
+                                // For now, we log but allow extension here.
+                                
                                 const unsupportedErrorData: Communication.WebSocket.GeneralErrorResponseMessage =
                                     {
                                         type: Communication.WebSocket

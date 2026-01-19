@@ -160,7 +160,7 @@
                                         <tr>
                                             <td class="text-medium-emphasis">Success Rate</td>
                                             <td class="font-weight-medium">{{ wsStats.queries.successRate?.toFixed(2)
-                                            }}%</td>
+                                                }}%</td>
                                         </tr>
                                     </tbody>
                                 </v-table>
@@ -179,6 +179,7 @@
 
 <script setup lang="ts">
 import { ref, computed, defineComponent, h } from "vue";
+import { clientBrowserConfiguration } from "../../../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 
 const props = defineProps<{
     modelValue: boolean;
@@ -197,6 +198,7 @@ const activeTab = ref("speedtest");
 
 interface ServiceResult {
     name: string;
+    baseUrl: string;
     path: string;
     latency: number | null;
     downloadSpeed: string | null;
@@ -204,22 +206,37 @@ interface ServiceResult {
     status: 'pending' | 'running' | 'done' | 'error';
 }
 
+// Build service base URLs from config
+const getAssetBaseUrl = () => clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL
+    ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI}`
+    : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI}`;
+
+const getAuthBaseUrl = () => clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL
+    ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI}`
+    : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI}`;
+
+const getInferenceBaseUrl = () => clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_INFERENCE_URI_USING_SSL
+    ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_INFERENCE_URI}`
+    : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_INFERENCE_URI}`;
+
+const getWsBaseUrl = () => clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL
+    ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI}`
+    : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI}`;
+
 const isRunning = ref(false);
 const progress = ref(0);
 const statusText = ref("Ready");
 const speedTestError = ref<string | null>(null);
 
 const services = ref<ServiceResult[]>([
-    { name: 'Asset', path: '/world/rest/asset', latency: null, downloadSpeed: null, uploadSpeed: null, status: 'pending' },
-    { name: 'Auth', path: '/world/rest/auth', latency: null, downloadSpeed: null, uploadSpeed: null, status: 'pending' },
-    { name: 'Inference', path: '/world/rest/inference', latency: null, downloadSpeed: null, uploadSpeed: null, status: 'pending' },
-    { name: 'WS', path: '/world/rest/ws', latency: null, downloadSpeed: null, uploadSpeed: null, status: 'pending' },
+    { name: 'Asset', baseUrl: getAssetBaseUrl(), path: '/world/rest/asset', latency: null, downloadSpeed: null, uploadSpeed: null, status: 'pending' },
+    { name: 'Auth', baseUrl: getAuthBaseUrl(), path: '/world/rest/auth', latency: null, downloadSpeed: null, uploadSpeed: null, status: 'pending' },
+    { name: 'Inference', baseUrl: getInferenceBaseUrl(), path: '/world/rest/inference', latency: null, downloadSpeed: null, uploadSpeed: null, status: 'pending' },
+    { name: 'WS', baseUrl: getWsBaseUrl(), path: '/world/rest/ws', latency: null, downloadSpeed: null, uploadSpeed: null, status: 'pending' },
 ]);
 
 const DOWNLOAD_SIZE = 5 * 1024 * 1024; // 5MB
 const UPLOAD_SIZE = 5 * 1024 * 1024; // 5MB
-
-const getBaseUrl = () => window.location.origin;
 
 async function startSpeedTest() {
     isRunning.value = true;
@@ -234,7 +251,7 @@ async function startSpeedTest() {
         s.status = 'pending';
     }
 
-    const baseUrl = getBaseUrl();
+
     const totalSteps = services.value.length * 3;
     let completedSteps = 0;
 
@@ -250,7 +267,7 @@ async function startSpeedTest() {
             try {
                 // Ping
                 const startPing = performance.now();
-                const pingRes = await fetch(`${baseUrl}${service.path}/speedtest/ping`);
+                const pingRes = await fetch(`${service.baseUrl}${service.path}/speedtest/ping`);
                 if (!pingRes.ok) throw new Error(`Ping failed: HTTP ${pingRes.status}`);
                 await pingRes.text();
                 service.latency = Math.round(performance.now() - startPing);
@@ -259,7 +276,7 @@ async function startSpeedTest() {
 
                 // Download
                 const startDl = performance.now();
-                const dlRes = await fetch(`${baseUrl}${service.path}/speedtest/download?size=${DOWNLOAD_SIZE}`);
+                const dlRes = await fetch(`${service.baseUrl}${service.path}/speedtest/download?size=${DOWNLOAD_SIZE}`);
                 if (!dlRes.ok) throw new Error(`HTTP ${dlRes.status}`);
                 await dlRes.arrayBuffer();
                 const dlDurationSec = (performance.now() - startDl) / 1000;
@@ -274,7 +291,7 @@ async function startSpeedTest() {
                     randomData[i] = Math.floor(Math.random() * 255);
                 }
                 const startUl = performance.now();
-                const ulRes = await fetch(`${baseUrl}${service.path}/speedtest/upload`, {
+                const ulRes = await fetch(`${service.baseUrl}${service.path}/speedtest/upload`, {
                     method: "POST",
                     body: randomData,
                     headers: { "Content-Type": "application/octet-stream" }
@@ -349,7 +366,7 @@ async function fetchAssetStats() {
     assetLoading.value = true;
     assetError.value = null;
     try {
-        const res = await fetch(`${getBaseUrl()}/world/rest/asset/stats`);
+        const res = await fetch(`${getAssetBaseUrl()}/world/rest/asset/stats`);
         const contentType = res.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) {
             throw new Error(`Stats endpoint not available (got ${contentType.split(';')[0] || 'unknown'} instead of JSON)`);
@@ -375,7 +392,7 @@ async function fetchAuthStats() {
     authLoading.value = true;
     authError.value = null;
     try {
-        const res = await fetch(`${getBaseUrl()}/world/rest/auth/stats`);
+        const res = await fetch(`${getAuthBaseUrl()}/world/rest/auth/stats`);
         const contentType = res.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) {
             throw new Error(`Stats endpoint not available (got ${contentType.split(';')[0] || 'unknown'} instead of JSON)`);
@@ -401,7 +418,7 @@ async function fetchInferenceStats() {
     inferenceLoading.value = true;
     inferenceError.value = null;
     try {
-        const res = await fetch(`${getBaseUrl()}/world/rest/inference/stats`);
+        const res = await fetch(`${getInferenceBaseUrl()}/world/rest/inference/stats`);
         const contentType = res.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) {
             throw new Error(`Stats endpoint not available (got ${contentType.split(';')[0] || 'unknown'} instead of JSON)`);
@@ -427,7 +444,7 @@ async function fetchWsStats() {
     wsLoading.value = true;
     wsError.value = null;
     try {
-        const res = await fetch(`${getBaseUrl()}/world/rest/ws/stats`);
+        const res = await fetch(`${getWsBaseUrl()}/world/rest/ws/stats`);
         const contentType = res.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) {
             throw new Error(`Stats endpoint not available (got ${contentType.split(';')[0] || 'unknown'} instead of JSON)`);
@@ -481,11 +498,9 @@ const ServiceStatsPanel = defineComponent({
                         color: 'primary',
                         variant: 'tonal',
                         loading: props.loading,
+                        prependIcon: 'mdi-refresh',
                         onClick: () => emit('refresh'),
-                    }, [
-                        h('v-icon', { start: true }, 'mdi-refresh'),
-                        'Fetch Stats'
-                    ])
+                    }, 'Fetch Stats')
                 ])
             );
 

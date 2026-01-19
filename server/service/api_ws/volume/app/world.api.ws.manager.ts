@@ -13,6 +13,7 @@ import {
 } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
 import {
     type Auth,
+    type Entity, // Added Entity type import
     Communication,
 } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { MetricsCollector } from "./service/metrics";
@@ -2384,6 +2385,141 @@ export class WorldApiWsManager {
                                     // Record metrics
                                     this.recordEndpointMetrics(
                                         "WS_QUERY_REQUEST",
+                                        startTime,
+                                        requestSize,
+                                        responseSize,
+                                        success,
+                                    );
+                                }
+                                break;
+                            }
+
+                            case Communication.WebSocket.MessageType
+                                .FETCH_ENTITIES_REQUEST: {
+                                const typedRequest =
+                                    data as Communication.WebSocket.FetchEntitiesRequestMessage;
+                                const startTime = performance.now();
+                                const requestSize = new TextEncoder().encode(
+                                    message,
+                                ).length;
+                                let responseSize = 0;
+                                let success = false;
+
+                                try {
+                                    if (!this.aclService) {
+                                        throw new Error("ACL Service not initialized");
+                                    }
+
+                                    // 1. App-Layer Permission Check
+                                    if (
+                                        !this.aclService.canRead(
+                                            session.agentId,
+                                            typedRequest.syncGroup,
+                                        )
+                                    ) {
+                                        throw new Error(
+                                            `Permission denied: Agent cannot read group ${typedRequest.syncGroup}`,
+                                        );
+                                    }
+
+                                    if (!superUserSql) {
+                                        throw new Error("Database connection execution failed");
+                                    }
+
+                                    // 2. Service Role Query (Optimized)
+                                    let entities: Entity.I_Entity[];
+
+                                    if (typedRequest.region) {
+                                        const [xmin, ymin, xmax, ymax] =
+                                            typedRequest.region;
+                                        entities = (await superUserSql`
+                                            SELECT * FROM entity.entities
+                                            WHERE group__sync = ${typedRequest.syncGroup}
+                                            AND position__x BETWEEN ${xmin} AND ${xmax}
+                                            AND position__y BETWEEN ${ymin} AND ${ymax}
+                                        `) as Entity.I_Entity[];
+                                    } else {
+                                        entities = (await superUserSql`
+                                            SELECT * FROM entity.entities
+                                            WHERE group__sync = ${typedRequest.syncGroup}
+                                        `) as Entity.I_Entity[];
+                                    }
+
+                                    const responseData = {
+                                        type: Communication.WebSocket.MessageType
+                                            .FETCH_ENTITIES_RESPONSE,
+                                        timestamp: Date.now(),
+                                        requestId: typedRequest.requestId,
+                                        errorMessage: null,
+                                        entities,
+                                    };
+
+                                    const responseParsed =
+                                        Communication.WebSocket.Z.FetchEntitiesResponse.safeParse(
+                                            responseData,
+                                        );
+                                    
+                                    if (!responseParsed.success) {
+                                         throw new Error(
+                                            `Invalid fetch response format: ${responseParsed.error.message}`,
+                                        );
+                                    }
+
+                                    const responseString = JSON.stringify(
+                                        responseParsed.data,
+                                    );
+                                    responseSize = new TextEncoder().encode(
+                                        responseString,
+                                    ).length;
+                                    success = true;
+
+                                    ws.send(responseString);
+                                    
+                                    BunLogModule({
+                                        prefix: LOG_PREFIX,
+                                        message: "WS FETCH_ENTITIES handlers handled",
+                                        debug: this.DEBUG,
+                                        suppress: this.SUPPRESS,
+                                        type: "debug",
+                                        data: {
+                                            requestId: typedRequest.requestId,
+                                            count: entities.length,
+                                            durationMs: performance.now() - receivedAt,
+                                        }
+                                    });
+
+                                } catch (error) {
+                                    const errorMessage =
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(error);
+
+                                    BunLogModule({
+                                        message: `Fetch entities failed: ${errorMessage}`,
+                                        debug: this.DEBUG,
+                                        suppress: this.SUPPRESS,
+                                        type: "error",
+                                        prefix: LOG_PREFIX,
+                                        data: {
+                                            error,
+                                            group: typedRequest.syncGroup,
+                                        },
+                                    });
+
+                                     const errorResponseData: Communication.WebSocket.FetchEntitiesResponseMessage =
+                                        {
+                                            type: Communication.WebSocket
+                                                .MessageType.FETCH_ENTITIES_RESPONSE,
+                                            timestamp: Date.now(),
+                                            requestId: typedRequest.requestId,
+                                            errorMessage,
+                                            entities: [],
+                                        };
+                                    
+                                    ws.send(JSON.stringify(errorResponseData));
+                                } finally {
+                                     this.recordEndpointMetrics(
+                                        "WS_FETCH_ENTITIES",
                                         startTime,
                                         requestSize,
                                         responseSize,

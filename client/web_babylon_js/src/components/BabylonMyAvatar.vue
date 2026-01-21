@@ -60,13 +60,16 @@ import {
     TransformNode,
     Vector3,
 } from "@babylonjs/core";
-import { computed, onMounted, onUnmounted, type Ref, ref } from "vue";
+import { computed, onMounted, onUnmounted, type Ref, ref, watch } from "vue";
 import "@babylonjs/loaders/glTF";
+import { Avatar, Communication } from "@vircadia/world-sdk/browser/vue";
+import { parseAvatarFrameMessage, parseAvatarJoint, ChatEntityMetadataSchema, type ChatMessage } from "@/schemas";
+import { useInterval } from "@vueuse/core";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+import type { KeyState } from "./BabylonMyAvatarMKBController.vue";
 
 // Debug viewers import
 import { AxesViewer, SkeletonViewer } from "@babylonjs/core/Debug";
-import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
-import type { KeyState } from "./BabylonMyAvatarMKBController.vue";
 
 type PositionObj = { x: number; y: number; z: number };
 type RotationObj = { x: number; y: number; z: number; w: number };
@@ -1316,6 +1319,29 @@ onMounted(async () => {
             }
         });
     }
+
+    // Watch for avatar URL changes and broadcast to server
+    watch(
+        () => effectiveAvatarDef.value.modelFileName,
+        (newModel) => {
+            if (!newModel) return;
+            // Access connectionInfo from the provider instance, not the client
+            const status = props.vircadiaWorld.connectionInfo.value.status;
+            if (status !== "connected") return;
+
+            const requestId = crypto.randomUUID();
+            const msg = new Avatar.AvatarSetRequestMessage({
+                requestId,
+                syncGroup: props.entitySyncGroup,
+                avatarData: {
+                    avatar__url: newModel,
+                }
+            });
+
+            // Cast connection to any to access send method until types are updated
+            (props.vircadiaWorld.client.connection as any).send(JSON.stringify(msg));
+        }
+    );
 });
 
 onUnmounted(() => {

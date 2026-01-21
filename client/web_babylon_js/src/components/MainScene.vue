@@ -76,7 +76,7 @@
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                         'mdi-speedometer-slow'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -111,7 +111,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                     <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="fly">
@@ -147,7 +147,7 @@
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                             'mdi-file-tree-outline'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -447,20 +447,7 @@
                                                                                     :entity-sync-group="'public.NORMAL'"
                                                                                     :reflect-channel="'avatar_data'"
                                                                                     ref="otherAvatarsRef"
-                                                                                    v-slot="{ otherAvatarSessionIds, avatarDataMap, positionDataMap, rotationDataMap, jointDataMap }">
-                                                                                    <BabylonOtherAvatar
-                                                                                        v-for="otherFullSessionId in otherAvatarSessionIds || []"
-                                                                                        :key="otherFullSessionId"
-                                                                                        :scene="scene"
-                                                                                        :vircadia-world="vircadiaWorld"
-                                                                                        :session-id="otherFullSessionId"
-                                                                                        :avatar-data="avatarDataMap?.[otherFullSessionId]"
-                                                                                        :position-data="positionDataMap?.[otherFullSessionId]"
-                                                                                        :rotation-data="rotationDataMap?.[otherFullSessionId]"
-                                                                                        :joint-data="jointDataMap?.[otherFullSessionId]"
-                                                                                        :chat-data="otherAvatarsRef?.chatDataMap?.[otherFullSessionId] || []"
-                                                                                        @ready="otherAvatarsRef?.markLoaded && otherAvatarsRef.markLoaded(otherFullSessionId)"
-                                                                                        @dispose="otherAvatarsRef?.markDisposed && otherAvatarsRef.markDisposed(otherFullSessionId)" />
+                                                                                    v-slot="{ otherAvatarSessionIds, avatarDataMap, positionDataMap }">
 
                                                                                     <!-- WebRTC component (now under OtherAvatars slot) -->
                                                                                     <BabylonWebRTC ref="webrtcRef"
@@ -578,7 +565,7 @@ import BabylonMyAvatarEntity, {
 } from "@/components/BabylonMyAvatarEntity.vue";
 import BabylonMyAvatarMKBController from "@/components/BabylonMyAvatarMKBController.vue";
 import BabylonMyAvatarModel from "@/components/BabylonMyAvatarModel.vue";
-import BabylonOtherAvatar from "@/components/BabylonOtherAvatar.vue";
+
 import BabylonOtherAvatars from "@/components/BabylonOtherAvatars.vue";
 import BabylonPhysics from "@/components/BabylonPhysics.vue";
 import BabylonSnackbar from "@/components/BabylonSnackbar.vue";
@@ -963,6 +950,7 @@ const avatarDefinition: AvatarDefinition = {
     modelFileName: "babylon.avatar.glb",
     modelUrl: avatarModelUrl,
     meshPivotPoint: "bottom",
+    throttleInterval: 100,
     capsuleHeight: 2.3,
     capsuleRadius: 0.3,
     slopeLimit: 45,

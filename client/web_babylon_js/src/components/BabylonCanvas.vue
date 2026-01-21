@@ -7,14 +7,20 @@
         }} verts • {{ currentFps }} FPS</span>
     </div>
 
-    <slot :scene="readyScene" :canvas="canvasRef">
+    <slot :scene="readyScene" :canvas="canvasRef" :physicsEnabled="physicsEnabled"
+        :physicsPluginName="physicsPluginName" :physicsError="physicsError" :gravity="gravityRef"
+        :physicsEngineType="physicsEngineType" :physicsInitialized="physicsInitialized"
+        :havokInstanceLoaded="havokInstanceLoaded" :physicsPluginCreated="physicsPluginCreated">
     </slot>
 </template>
 
 <script setup lang="ts">
 import { ArcRotateCamera, Engine, NullEngine, Scene, Vector3, WebGPUEngine } from "@babylonjs/core";
 import { DracoDecoder } from "@babylonjs/core/Meshes/Compression/dracoDecoder.js"
-import { computed, onMounted, onUnmounted, ref, toRef, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, toRef, watch, type PropType } from "vue";
+import { HavokPlugin } from "@babylonjs/core/Physics/v2/Plugins/havokPlugin";
+import HavokPhysics from "@babylonjs/havok";
+import "@babylonjs/core/Physics/v2/physicsEngineComponent";
 
 import DRACO_DECODER_GLTF_JS_URL from "@/assets/babylon_js/draco_decoder_gltf.js?url";
 import DRACO_DECODER_GLTF_WASM_URL from "@/assets/babylon_js/draco_decoder_gltf.wasm?url";
@@ -28,6 +34,8 @@ const renderLoopEnabled = defineModel<boolean>("renderLoopEnabled", { default: t
 const props = defineProps({
     targetFps: { type: Number, default: 30 },
     engineType: { type: String as () => "webgl" | "webgpu" | "nullengine", default: "webgpu" },
+    gravity: { type: Array as unknown as PropType<[number, number, number]>, default: () => [0, -9.81, 0] },
+    enablePhysics: { type: Boolean, default: true },
 });
 
 // Internal refs
@@ -53,7 +61,103 @@ const engineTypeDisplay = computed(() => {
     return "Unknown";
 });
 
-// Physics is initialized and managed by BabylonEnvironment.vue
+// Physics is initialized and managed by BabylonEnvironment.vue -> Moved here
+let havokInstance: unknown | null = null;
+let physicsPlugin: HavokPlugin | null = null;
+
+const physicsError = ref<string | null>(null);
+const physicsInitialized = ref(false);
+
+const gravityRef = toRef(props, "gravity");
+
+async function initializePhysicsIfNeeded(targetScene: Scene) {
+    if (props.enablePhysics === false) return;
+
+    if (targetScene.getPhysicsEngine?.()) {
+        physicsInitialized.value = true;
+        return;
+    }
+
+    try {
+        physicsError.value = null;
+
+        if (!havokInstance) {
+            havokInstance = await HavokPhysics();
+        }
+
+        if (!physicsPlugin) {
+            physicsPlugin = new HavokPlugin(true, havokInstance);
+        }
+
+        const g = gravityRef.value;
+        const gravityVector = new Vector3(g[0], g[1], g[2]);
+        targetScene.enablePhysics(gravityVector, physicsPlugin);
+
+        // Wait briefly for the engine to attach before flagging initialized
+        let tries = 0;
+        while (!targetScene.getPhysicsEngine?.() && tries < 20) {
+            await new Promise((r) => setTimeout(r, 50));
+            tries++;
+        }
+        const engine = targetScene.getPhysicsEngine?.();
+        if (engine) {
+            physicsInitialized.value = true;
+        } else {
+            physicsError.value = "Physics engine not available after enable";
+            physicsInitialized.value = false;
+        }
+    } catch (error: unknown) {
+        try {
+            const err = error as { message?: string } | string;
+            physicsError.value =
+                (typeof err === "string" ? err : err?.message) || "";
+        } catch {
+            physicsError.value = "Unknown physics init error";
+        }
+    }
+}
+
+const physicsEnabled = computed<boolean>(() => {
+    // Force recomputation when initialization flag changes (engine is non-reactive)
+    const initialized = physicsInitialized.value;
+    const s = scene; // Use local scene ref
+    if (!s) return false;
+    const sceneWithPhysics = s as Scene & {
+        getPhysicsEngine?: () => unknown | null;
+        isPhysicsEnabled?: () => boolean;
+    };
+    const engine = sceneWithPhysics.getPhysicsEngine?.() ?? null;
+    const isEnabled = sceneWithPhysics.isPhysicsEnabled?.() ?? false;
+    return !!engine || isEnabled;
+});
+
+const physicsPluginName = computed<string>(() => {
+    const initialized = physicsInitialized.value;
+    const s = scene as unknown as {
+        getPhysicsEngine?: () => unknown;
+    } | null;
+    const engineAny = (s?.getPhysicsEngine?.() ?? null) as unknown as {
+        getPhysicsPluginName?: () => string | undefined;
+    } | null;
+    return engineAny?.getPhysicsPluginName?.() || (engineAny ? "Havok" : "");
+});
+
+const physicsEngineType = computed<string>(() => {
+    const initialized = physicsInitialized.value;
+    const s = scene as unknown as {
+        getPhysicsEngine?: () => unknown;
+    } | null;
+    const engine = s?.getPhysicsEngine?.();
+    return engine &&
+        (engine as { constructor?: { name?: string } }).constructor?.name
+        ? (engine as { constructor: { name: string } }).constructor.name
+        : "";
+});
+
+const havokInstanceLoaded = computed<boolean>(() => !!havokInstance);
+const physicsPluginCreated = computed<boolean>(() => !!physicsPlugin);
+
+// Note: Physics is initialized in onMounted after scene creation
 
 function handleResize() {
     if (resizeRaf) cancelAnimationFrame(resizeRaf);
@@ -231,7 +335,14 @@ onMounted(async () => {
         if (!engine) throw new Error("Engine not found");
 
         scene = new Scene(engine);
-        // Track scene readiness reactively
+
+        // Initialize physics BEFORE setting scene as ready
+        // This ensures child components have access to physics engine
+        if (props.enablePhysics) {
+            await initializePhysicsIfNeeded(scene);
+        }
+
+        // Track scene readiness reactively - only after physics is ready
         scene.executeWhenReady(() => {
             sceneReady.value = true;
         });
@@ -294,6 +405,14 @@ onMounted(async () => {
 defineExpose({
     get scene() { return readyScene.value ?? null },
     get canvas() { return canvasRef.value ?? null },
+    physicsError,
+    physicsEnabled,
+    physicsPluginName,
+    physicsEngineType,
+    physicsInitialized,
+    havokInstanceLoaded,
+    physicsPluginCreated,
+    gravity: gravityRef,
 })
 
 onUnmounted(() => {

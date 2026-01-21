@@ -16,8 +16,16 @@ import {
     type Entity, // Added Entity type import
     Communication,
 } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+import { Avatar } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.avatar";
 import { MetricsCollector } from "./service/metrics";
 import { GameLoopManager } from "./world.game.loop.manager";
+// Handlers
+import { QueryMessageHandler } from "./handlers/query.handler";
+import { ReflectMessageHandler } from "./handlers/reflect.handler";
+import { EntityMessageHandler } from "./handlers/entity.handler";
+import { GameMessageHandler } from "./handlers/game.handler";
+import { AvatarMessageHandler } from "./handlers/avatar.handler";
+import type { IMessageHandler, IWorldApiWsContext } from "./handlers/message.handler.interface";
 
 let legacySuperUserSql: Sql | null = null;
 // Note: legacyProxyUserSql kept for parity, currently unused
@@ -26,7 +34,7 @@ let superUserSql: SQL | null = null;
 let proxyUserSql: SQL | null = null;
 
 // =================================================================================
-// ================ WORLD API WS MANAGER: Server Startup and Routing ==================
+// =============== WORLD API WS MANAGER: Server Startup and Routing ==================
 // =================================================================================
 
 // #region WorldApiWsManager
@@ -134,6 +142,39 @@ export class WorldApiWsManager {
     private readonly METADATA_TOPIC_PREFIX = "metadata:";
     private readonly ENTITY_CHANGE_CHANNEL = "entity_change";
     private readonly ENTITY_METADATA_CHANGE_CHANNEL = "entity_metadata_change";
+    
+    public subscribeToTopic(ws: ServerWebSocket<WebSocketData>, topic: string): void {
+        if (typeof ws.subscribe === "function") {
+             ws.subscribe(topic);
+        }
+    }
+    
+    public getGameLoop(syncGroup: string): GameLoopManager | undefined {
+        return this.gameLoops.get(syncGroup);
+    }
+
+    public routeGameInput(session: WorldSession, message: Communication.WebSocket.GameInputMessage): void {
+        // Iterate over all game loops and delegate input if the session is relevant
+        // For now, simpler approach: if we knew the syncgroup we could route directly.
+        // Since we don't, we might need to check if the agent exists in a loop?
+        // Or route to all?
+        // Refactoring note: Ideally GameInputMessage should strictly require syncGroup if multi-world.
+        // But for now, we can check if any loop has this agent.
+        
+        for (const [group, loop] of this.gameLoops) {
+             // We can optimistically send to all or check presence
+             // GameLoopManager handles input.
+             // Ideally we should track which group a session is in.
+             loop.handleInput(session, message);
+        }
+    }
+
+    // Message Handlers
+    private queryHandler: IMessageHandler = new QueryMessageHandler();
+    private reflectHandler: IMessageHandler = new ReflectMessageHandler();
+    private entityHandler: IMessageHandler = new EntityMessageHandler();
+    private gameHandler: IMessageHandler = new GameMessageHandler();
+    private avatarHandler: IMessageHandler = new AvatarMessageHandler();
 
     private addCorsHeaders(response: Response, req: Request): Response {
         const origin = req.headers.get("origin");
@@ -181,7 +222,7 @@ export class WorldApiWsManager {
         return response;
     }
 
-    private getReflectTopic(
+    public getReflectTopic(
         syncGroup: string,
         channel?: string | null,
     ): string {
@@ -191,7 +232,7 @@ export class WorldApiWsManager {
         return `${this.REFLECT_TOPIC_PREFIX}${syncGroup}:${channel}`;
     }
 
-    private getEntityTopic(
+    public getEntityTopic(
         syncGroup: string,
         entityName: string,
         channel?: string | null,
@@ -202,7 +243,7 @@ export class WorldApiWsManager {
         return `${this.ENTITY_TOPIC_PREFIX}${syncGroup}:${entityName}:${channel}`;
     }
 
-    private getMetadataTopic(
+    public getMetadataTopic(
         syncGroup: string,
         entityName: string,
         metadataKey: string,
@@ -289,7 +330,7 @@ export class WorldApiWsManager {
         return delivered;
     }
 
-    private enqueueReflect(
+    public enqueueReflect(
         syncGroup: string,
         channel: string,
         fromSessionId: string,
@@ -1263,7 +1304,7 @@ export class WorldApiWsManager {
     }
 
     // Helper method to record endpoint metrics
-    private recordEndpointMetrics(
+    public recordEndpointMetrics(
         endpoint: string,
         startTime: number,
         requestSize: number,
@@ -1307,7 +1348,7 @@ export class WorldApiWsManager {
 
 
     // Wrapper helpers to the ACL service
-    private async warmAgentAcl(agentId: string) {
+    public async warmAgentAcl(agentId: string): Promise<void> {
         await this.aclService?.warmAgentAcl(agentId);
         // Sync reflect subscriptions for all sessions of this agent
         for (const session of this.activeSessions.values()) {
@@ -2144,7 +2185,7 @@ export class WorldApiWsManager {
                             agentId: ws.data.agentId,
                         },
                     });
-                    let data: Communication.WebSocket.Message | undefined;
+                    let data: Communication.WebSocket.Message | Avatar.AvatarSetRequestMessage | Avatar.AvatarQueryRequestMessage | undefined;
 
                     if (!superUserSql || !proxyUserSql) {
                         BunLogModule({
@@ -2167,7 +2208,7 @@ export class WorldApiWsManager {
                         // Parse message
                         data = JSON.parse(
                             message,
-                        ) as Communication.WebSocket.Message;
+                        ) as Communication.WebSocket.Message | Avatar.AvatarSetRequestMessage | Avatar.AvatarQueryRequestMessage;
 
                         BunLogModule({
                             prefix: LOG_PREFIX,
@@ -2183,10 +2224,23 @@ export class WorldApiWsManager {
                         });
 
                         // Zod-validate incoming WS message
-                        const parsed =
+                        let parsed =
                             Communication.WebSocket.Z.AnyMessage.safeParse(
                                 data,
                             );
+                        
+                        // Fallback to Avatar schema if general schema fails
+                        if (!parsed.success) {
+                             const avatarSetParsed = Avatar.Z_AvatarSetRequest.safeParse(data);
+                             if (avatarSetParsed.success) {
+                                 parsed = avatarSetParsed as any;
+                             } else {
+                                 const avatarQueryParsed = Avatar.Z_AvatarQueryRequest.safeParse(data);
+                                 if (avatarQueryParsed.success) {
+                                    parsed = avatarQueryParsed as any;
+                                 }
+                             }
+                        }
                         if (!parsed.success) {
                             const requestId = data?.requestId ?? "";
                             const errorMessageData = {
@@ -2247,1081 +2301,49 @@ export class WorldApiWsManager {
                             return;
                         }
 
+                        // Create context for handlers
+                        const context: IWorldApiWsContext = {
+                            manager: this,
+                            server: this.server!,
+                            superUserSql: superUserSql!,
+                            proxyUserSql: proxyUserSql!,
+                            legacySuperUserSql: legacySuperUserSql!,
+                            aclService: this.aclService!, // Checked below, effectively non-null
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS
+                        };
+
                         // Handle different message types
-                        switch (data.type) {
-                            case Communication.WebSocket.MessageType
-                                .QUERY_REQUEST: {
-                                const typedRequest =
-                                    data as Communication.WebSocket.QueryRequestMessage;
-
-                                // Metrics tracking
-                                const startTime = performance.now();
-                                const requestSize = new TextEncoder().encode(
-                                    message,
-                                ).length;
-                                let responseSize = 0;
-                                let success = false;
-
-                                try {
-                                    await proxyUserSql?.begin(async (tx) => {
-                                        // First set agent context
-                                        await tx`SELECT auth.set_agent_context_from_agent_id(${session.agentId}::UUID)`;
-
-                                        const results = await tx.unsafe(
-                                            typedRequest.query,
-                                            typedRequest.parameters || [],
-                                        );
-
-                                        const responseData = {
-                                            type: Communication.WebSocket
-                                                .MessageType.QUERY_RESPONSE,
-                                            timestamp: Date.now(),
-                                            requestId: typedRequest.requestId,
-                                            errorMessage:
-                                                typedRequest.errorMessage,
-                                            result: results,
-                                        };
-
-                                        const responseParsed =
-                                            Communication.WebSocket.Z.QueryResponse.safeParse(
-                                                responseData,
-                                            );
-                                        if (!responseParsed.success) {
-                                            throw new Error(
-                                                `Invalid query response format: ${responseParsed.error.message}`,
-                                            );
-                                        }
-
-                                        const responseString = JSON.stringify(
-                                            responseParsed.data,
-                                        );
-                                        responseSize = new TextEncoder().encode(
-                                            responseString,
-                                        ).length;
-                                        success = true;
-
-                                        ws.send(responseString);
-                                        BunLogModule({
-                                            prefix: LOG_PREFIX,
-                                            message: "WS QUERY_REQUEST handled",
-                                            debug: this.DEBUG,
-                                            suppress: this.SUPPRESS,
-                                            type: "debug",
-                                            data: {
-                                                requestId:
-                                                    typedRequest.requestId,
-                                                durationMs:
-                                                    performance.now() -
-                                                    receivedAt,
-                                                requestSize,
-                                                responseSize,
-                                            },
-                                        });
-                                    });
-                                } catch (error) {
-                                    // Improved error handling with more structured information
-                                    const errorMessage =
-                                        error instanceof Error
-                                            ? error.message
-                                            : String(error);
-
-                                    BunLogModule({
-                                        message: `Query failed: ${errorMessage}`,
-                                        debug: this.DEBUG,
-                                        suppress: this.SUPPRESS,
-                                        type: "error",
-                                        prefix: LOG_PREFIX,
-                                        data: {
-                                            error,
-                                            query: typedRequest.query,
-                                        },
-                                    });
-
-                                    const errorResponseData: Communication.WebSocket.QueryResponseMessage =
-                                        {
-                                            type: Communication.WebSocket
-                                                .MessageType.QUERY_RESPONSE,
-                                            timestamp: Date.now(),
-                                            requestId: typedRequest.requestId,
-                                            errorMessage,
-                                            result: [],
-                                        };
-
-                                    const errorResponseParsed =
-                                        Communication.WebSocket.Z.QueryResponse.safeParse(
-                                            errorResponseData,
-                                        );
-                                    if (!errorResponseParsed.success) {
-                                        throw new Error(
-                                            `Invalid error response format: ${errorResponseParsed.error.message}`,
-                                        );
-                                    }
-
-                                    const errorResponseString = JSON.stringify(
-                                        errorResponseParsed.data,
-                                    );
-                                    responseSize = new TextEncoder().encode(
-                                        errorResponseString,
-                                    ).length;
-                                    success = false;
-
-                                    ws.send(errorResponseString);
-                                    BunLogModule({
-                                        prefix: LOG_PREFIX,
-                                        message: "WS QUERY_REQUEST error",
-                                        debug: this.DEBUG,
-                                        suppress: this.SUPPRESS,
-                                        type: "info",
-                                        data: {
-                                            requestId: typedRequest.requestId,
-                                            durationMs:
-                                                performance.now() - receivedAt,
-                                            requestSize,
-                                            responseSize,
-                                            errorMessage,
-                                        },
-                                    });
-                                } finally {
-                                    // Record metrics
-                                    this.recordEndpointMetrics(
-                                        "WS_QUERY_REQUEST",
-                                        startTime,
-                                        requestSize,
-                                        responseSize,
-                                        success,
-                                    );
-                                }
-                                break;
-                            }
-
-                            case Communication.WebSocket.MessageType
-                                .FETCH_ENTITIES_REQUEST: {
-                                const typedRequest =
-                                    data as Communication.WebSocket.FetchEntitiesRequestMessage;
-                                const startTime = performance.now();
-                                const requestSize = new TextEncoder().encode(
-                                    message,
-                                ).length;
-                                let responseSize = 0;
-                                let success = false;
-
-                                try {
-                                    if (!this.aclService) {
-                                        throw new Error("ACL Service not initialized");
-                                    }
-
-                                    // 1. App-Layer Permission Check
-                                    if (
-                                        !this.aclService.canRead(
-                                            session.agentId,
-                                            typedRequest.syncGroup,
-                                        )
-                                    ) {
-                                        throw new Error(
-                                            `Permission denied: Agent cannot read group ${typedRequest.syncGroup}`,
-                                        );
-                                    }
-
-                                    if (!superUserSql) {
-                                        throw new Error("Database connection execution failed");
-                                    }
-
-                                    // 2. Service Role Query (Optimized)
-                                    let entities: Entity.I_Entity[];
-
-                                    if (typedRequest.region) {
-                                        const [xmin, ymin, xmax, ymax] =
-                                            typedRequest.region;
-                                        entities = (await superUserSql`
-                                            SELECT * FROM entity.entities
-                                            WHERE group__sync = ${typedRequest.syncGroup}
-                                            AND position__x BETWEEN ${xmin} AND ${xmax}
-                                            AND position__y BETWEEN ${ymin} AND ${ymax}
-                                        `) as Entity.I_Entity[];
-                                    } else {
-                                        entities = (await superUserSql`
-                                            SELECT * FROM entity.entities
-                                            WHERE group__sync = ${typedRequest.syncGroup}
-                                        `) as Entity.I_Entity[];
-                                    }
-
-                                    const responseData = {
-                                        type: Communication.WebSocket.MessageType
-                                            .FETCH_ENTITIES_RESPONSE,
-                                        timestamp: Date.now(),
-                                        requestId: typedRequest.requestId,
-                                        errorMessage: null,
-                                        entities,
-                                    };
-
-                                    const responseParsed =
-                                        Communication.WebSocket.Z.FetchEntitiesResponse.safeParse(
-                                            responseData,
-                                        );
-                                    
-                                    if (!responseParsed.success) {
-                                         throw new Error(
-                                            `Invalid fetch response format: ${responseParsed.error.message}`,
-                                        );
-                                    }
-
-                                    const responseString = JSON.stringify(
-                                        responseParsed.data,
-                                    );
-                                    responseSize = new TextEncoder().encode(
-                                        responseString,
-                                    ).length;
-                                    success = true;
-
-                                    ws.send(responseString);
-                                    
-                                    BunLogModule({
-                                        prefix: LOG_PREFIX,
-                                        message: "WS FETCH_ENTITIES handlers handled",
-                                        debug: this.DEBUG,
-                                        suppress: this.SUPPRESS,
-                                        type: "debug",
-                                        data: {
-                                            requestId: typedRequest.requestId,
-                                            count: entities.length,
-                                            durationMs: performance.now() - receivedAt,
-                                        }
-                                    });
-
-                                } catch (error) {
-                                    const errorMessage =
-                                        error instanceof Error
-                                            ? error.message
-                                            : String(error);
-
-                                    BunLogModule({
-                                        message: `Fetch entities failed: ${errorMessage}`,
-                                        debug: this.DEBUG,
-                                        suppress: this.SUPPRESS,
-                                        type: "error",
-                                        prefix: LOG_PREFIX,
-                                        data: {
-                                            error,
-                                            group: typedRequest.syncGroup,
-                                        },
-                                    });
-
-                                     const errorResponseData: Communication.WebSocket.FetchEntitiesResponseMessage =
-                                        {
-                                            type: Communication.WebSocket
-                                                .MessageType.FETCH_ENTITIES_RESPONSE,
-                                            timestamp: Date.now(),
-                                            requestId: typedRequest.requestId,
-                                            errorMessage,
-                                            entities: [],
-                                        };
-                                    
-                                    ws.send(JSON.stringify(errorResponseData));
-                                } finally {
-                                     this.recordEndpointMetrics(
-                                        "WS_FETCH_ENTITIES",
-                                        startTime,
-                                        requestSize,
-                                        responseSize,
-                                        success,
-                                    );
-                                }
-                                break;
-                            }
-
-                            case Communication.WebSocket.MessageType
-                                .ENTITY_CHANNEL_SUBSCRIBE_REQUEST: {
-                                const typedRequest =
-                                    data as Communication.WebSocket.EntityChannelSubscribeRequestMessage;
-
-                                const startTime = performance.now();
-                                const requestSize = new TextEncoder().encode(
-                                    message,
-                                ).length;
-                                let responseSize = 0;
-                                let success = false;
-                                const entityName =
-                                    typedRequest.entityName.trim();
-                                const channel =
-                                    typedRequest.channel === undefined
-                                        ? null
-                                        : typedRequest.channel?.trim() || null;
-
-                                try {
-                                    if (!entityName) {
-                                        throw new Error(
-                                            "entityName is required",
-                                        );
-                                    }
-
-                                    if (
-                                        !this.aclService?.isWarmed(
-                                            session.agentId,
-                                        )
-                                    ) {
-                                        await this.warmAgentAcl(
-                                            session.agentId,
-                                        ).catch(() => {});
-                                    }
-
-                                    // Get the entity's syncGroup from the database
-                                    if (!superUserSql) {
-                                        throw new Error(
-                                            "Database connection not available",
-                                        );
-                                    }
-
-                                    const entityResult = await superUserSql<
-                                        Array<{ group__sync: string }>
-                                    >`
-                                        SELECT group__sync
-                                        FROM entity.entities
-                                        WHERE general__entity_name = ${entityName}
-                                        LIMIT 1
-                                    `;
-
-                                    if (entityResult.length === 0) {
-                                        throw new Error(
-                                            `Entity not found: ${entityName}`,
-                                        );
-                                    }
-
-                                    const syncGroup =
-                                        entityResult[0].group__sync;
-
-                                    // Check if user can read this syncGroup
-                                    if (
-                                        !this.canRead(
-                                            session.agentId,
-                                            syncGroup,
-                                        )
-                                    ) {
-                                        throw new Error(
-                                            `Not authorized to read sync group: ${syncGroup}`,
-                                        );
-                                    }
-
-                                    // Subscribe to entity topics
-                                    const ws =
-                                        session.ws as ServerWebSocket<WebSocketData>;
-                                    if (typeof ws.subscribe !== "function") {
-                                        throw new Error(
-                                            "WebSocket does not support subscriptions",
-                                        );
-                                    }
-
-                                    if (channel === null) {
-                                        // Subscribe to "all channels" topic
-                                        const allChannelsTopic =
-                                            this.getEntityTopic(
-                                                syncGroup,
-                                                entityName,
-                                            );
-                                        ws.subscribe(allChannelsTopic);
-
-                                        // Also subscribe to all metadata "all channels" topics for this entity
-                                        // We subscribe to the generic "__ALL__" metadata topic for each sync group used by this entity's metadata
-                                        // plus the entity's own sync group (to cover future metadata creation)
-
-                                        const metadataSyncGroupsResult =
-                                            await superUserSql<
-                                                Array<{ group__sync: string }>
-                                            >`
-                                            SELECT DISTINCT e.group__sync
-                                            FROM entity.entity_metadata AS m
-                                            JOIN entity.entities AS e
-                                              ON e.general__entity_name = m.general__entity_name
-                                            WHERE m.general__entity_name = ${entityName}
-                                        `;
-
-                                        const uniqueSyncGroups =
-                                            new Set<string>();
-                                        uniqueSyncGroups.add(syncGroup);
-                                        for (const row of metadataSyncGroupsResult) {
-                                            uniqueSyncGroups.add(
-                                                row.group__sync,
-                                            );
-                                        }
-
-                                        for (const sg of uniqueSyncGroups) {
-                                            if (
-                                                this.canRead(
-                                                    session.agentId,
-                                                    sg,
-                                                )
-                                            ) {
-                                                const metadataAllChannelsTopic =
-                                                    this.getMetadataTopic(
-                                                        sg,
-                                                        entityName,
-                                                        "__ALL__",
-                                                    );
-                                                ws.subscribe(
-                                                    metadataAllChannelsTopic,
-                                                );
-                                            }
-                                        }
-                                    } else {
-                                        // Subscribe to channel-specific topic
-                                        const channelTopic =
-                                            this.getEntityTopic(
-                                                syncGroup,
-                                                entityName,
-                                                channel,
-                                            );
-                                        ws.subscribe(channelTopic);
-
-                                        // Also subscribe to channel-specific metadata topics
-                                        const metadataSyncGroupsResult =
-                                            await superUserSql<
-                                                Array<{ group__sync: string }>
-                                            >`
-                                            SELECT DISTINCT e.group__sync
-                                            FROM entity.entity_metadata AS m
-                                            JOIN entity.entities AS e
-                                              ON e.general__entity_name = m.general__entity_name
-                                            WHERE m.general__entity_name = ${entityName}
-                                        `;
-
-                                        const uniqueSyncGroups =
-                                            new Set<string>();
-                                        uniqueSyncGroups.add(syncGroup);
-                                        for (const row of metadataSyncGroupsResult) {
-                                            uniqueSyncGroups.add(
-                                                row.group__sync,
-                                            );
-                                        }
-
-                                        for (const sg of uniqueSyncGroups) {
-                                            if (
-                                                this.canRead(
-                                                    session.agentId,
-                                                    sg,
-                                                )
-                                            ) {
-                                                const metadataChannelTopic =
-                                                    this.getMetadataTopic(
-                                                        sg,
-                                                        entityName,
-                                                        "__ALL__",
-                                                        channel,
-                                                    );
-                                                ws.subscribe(
-                                                    metadataChannelTopic,
-                                                );
-                                            }
-                                        }
-                                    }
-
-                                    const responseData = {
-                                        type: Communication.WebSocket
-                                            .MessageType
-                                            .ENTITY_CHANNEL_SUBSCRIBE_RESPONSE,
-                                        timestamp: Date.now(),
-                                        requestId: typedRequest.requestId,
-                                        errorMessage: null,
-                                        entityName,
-                                        channel,
-                                        subscribed: true,
-                                    };
-
-                                    const responseParsed =
-                                        Communication.WebSocket.Z.EntityChannelSubscribeResponse.safeParse(
-                                            responseData,
-                                        );
-                                    if (!responseParsed.success) {
-                                        throw new Error(
-                                            "Invalid entity channel subscribe response format",
-                                        );
-                                    }
-
-                                    const responseString = JSON.stringify(
-                                        responseParsed.data,
-                                    );
-                                    responseSize = new TextEncoder().encode(
-                                        responseString,
-                                    ).length;
-                                    success = true;
-
-                                    ws.send(responseString);
-
-                                    BunLogModule({
-                                        prefix: LOG_PREFIX,
-                                        message:
-                                            "WS ENTITY_CHANNEL_SUBSCRIBE_REQUEST handled",
-                                        debug: this.DEBUG,
-                                        suppress: this.SUPPRESS,
-                                        type: "debug",
-                                        data: {
-                                            requestId: typedRequest.requestId,
-                                            entityName,
-                                            channel,
-                                            durationMs:
-                                                performance.now() - receivedAt,
-                                        },
-                                    });
-                                } catch (error) {
-                                    const errorMessage =
-                                        error instanceof Error
-                                            ? error.message
-                                            : String(error);
-
-                                    const errorResponse = {
-                                        type: Communication.WebSocket
-                                            .MessageType
-                                            .ENTITY_CHANNEL_SUBSCRIBE_RESPONSE,
-                                        timestamp: Date.now(),
-                                        requestId: typedRequest.requestId,
-                                        errorMessage,
-                                        entityName,
-                                        channel,
-                                        subscribed: false,
-                                    };
-
-                                    const errorParsed =
-                                        Communication.WebSocket.Z.EntityChannelSubscribeResponse.safeParse(
-                                            errorResponse,
-                                        );
-                                    if (errorParsed.success) {
-                                        const errorString = JSON.stringify(
-                                            errorParsed.data,
-                                        );
-                                        responseSize = new TextEncoder().encode(
-                                            errorString,
-                                        ).length;
-                                        ws.send(errorString);
-                                    }
-
-                                    BunLogModule({
-                                        prefix: LOG_PREFIX,
-                                        message:
-                                            "WS ENTITY_CHANNEL_SUBSCRIBE_REQUEST error",
-                                        debug: this.DEBUG,
-                                        suppress: this.SUPPRESS,
-                                        type: "info",
-                                        data: {
-                                            requestId: typedRequest.requestId,
-                                            entityName,
-                                            channel,
-                                            errorMessage,
-                                        },
-                                    });
-                                } finally {
-                                    this.recordEndpointMetrics(
-                                        "WS_ENTITY_CHANNEL_SUBSCRIBE_REQUEST",
-                                        startTime,
-                                        requestSize,
-                                        responseSize,
-                                        success,
-                                    );
-                                }
-
-                                break;
-                            }
-
-                            case Communication.WebSocket.MessageType
-                                .ENTITY_CHANNEL_UNSUBSCRIBE_REQUEST: {
-                                const typedRequest =
-                                    data as Communication.WebSocket.EntityChannelUnsubscribeRequestMessage;
-
-                                const startTime = performance.now();
-                                const requestSize = new TextEncoder().encode(
-                                    message,
-                                ).length;
-                                let responseSize = 0;
-                                let removed = false;
-                                const entityName =
-                                    typedRequest.entityName.trim();
-                                const channel =
-                                    typedRequest.channel === undefined
-                                        ? null
-                                        : typedRequest.channel?.trim() || null;
-
-                                const ws =
-                                    session.ws as ServerWebSocket<WebSocketData>;
-                                if (typeof ws.unsubscribe !== "function") {
-                                    // WebSocket doesn't support unsubscription
-                                    removed = false;
-                                } else {
-                                    // Get current subscriptions from Bun's native getter
-                                    const subscriptions =
-                                        (
-                                            ws as unknown as {
-                                                subscriptions?: string[];
-                                            }
-                                        ).subscriptions || [];
-                                    const currentSubscriptions = new Set(
-                                        subscriptions,
-                                    );
-
-                                    // Get the entity's syncGroup from the database
-                                    if (superUserSql && entityName) {
-                                        try {
-                                            const entityResult =
-                                                await superUserSql<
-                                                    Array<{
-                                                        group__sync: string;
-                                                    }>
-                                                >`
-                                                SELECT group__sync
-                                                FROM entity.entities
-                                                WHERE general__entity_name = ${entityName}
-                                                LIMIT 1
-                                            `;
-
-                                            if (entityResult.length > 0) {
-                                                const syncGroup =
-                                                    entityResult[0].group__sync;
-
-                                                if (channel === null) {
-                                                    // Unsubscribe from all entity and metadata topics for this entity
-                                                    const allChannelsTopic =
-                                                        this.getEntityTopic(
-                                                            syncGroup,
-                                                            entityName,
-                                                        );
-                                                    if (
-                                                        currentSubscriptions.has(
-                                                            allChannelsTopic,
-                                                        )
-                                                    ) {
-                                                        ws.unsubscribe(
-                                                            allChannelsTopic,
-                                                        );
-                                                        removed = true;
-                                                    }
-
-                                                    // Unsubscribe from all metadata "all channels" topics
-                                                    const metadataKeysResult =
-                                                        await superUserSql<
-                                                            Array<{
-                                                                metadata__key: string;
-                                                                group__sync: string;
-                                                            }>
-                                                        >`
-                                                        SELECT DISTINCT m.metadata__key, e.group__sync
-                                                        FROM entity.entity_metadata AS m
-                                                        JOIN entity.entities AS e
-                                                          ON e.general__entity_name = m.general__entity_name
-                                                        WHERE m.general__entity_name = ${entityName}
-                                                    `;
-
-                                                    for (const row of metadataKeysResult) {
-                                                        const metadataAllChannelsTopic =
-                                                            this.getMetadataTopic(
-                                                                row.group__sync,
-                                                                entityName,
-                                                                row.metadata__key,
-                                                            );
-                                                        if (
-                                                            currentSubscriptions.has(
-                                                                metadataAllChannelsTopic,
-                                                            )
-                                                        ) {
-                                                            ws.unsubscribe(
-                                                                metadataAllChannelsTopic,
-                                                            );
-                                                        }
-                                                    }
-                                                } else {
-                                                    // Unsubscribe from channel-specific topic
-                                                    const channelTopic =
-                                                        this.getEntityTopic(
-                                                            syncGroup,
-                                                            entityName,
-                                                            channel,
-                                                        );
-                                                    if (
-                                                        currentSubscriptions.has(
-                                                            channelTopic,
-                                                        )
-                                                    ) {
-                                                        ws.unsubscribe(
-                                                            channelTopic,
-                                                        );
-                                                        removed = true;
-                                                    }
-
-                                                    // Unsubscribe from channel-specific metadata topics
-                                                    const metadataKeysResult =
-                                                        await superUserSql<
-                                                            Array<{
-                                                                metadata__key: string;
-                                                                group__sync: string;
-                                                            }>
-                                                        >`
-                                                        SELECT DISTINCT m.metadata__key, e.group__sync
-                                                        FROM entity.entity_metadata AS m
-                                                        JOIN entity.entities AS e
-                                                          ON e.general__entity_name = m.general__entity_name
-                                                        WHERE m.general__entity_name = ${entityName}
-                                                    `;
-
-                                                    for (const row of metadataKeysResult) {
-                                                        const metadataChannelTopic =
-                                                            this.getMetadataTopic(
-                                                                row.group__sync,
-                                                                entityName,
-                                                                row.metadata__key,
-                                                                channel,
-                                                            );
-                                                        if (
-                                                            currentSubscriptions.has(
-                                                                metadataChannelTopic,
-                                                            )
-                                                        ) {
-                                                            ws.unsubscribe(
-                                                                metadataChannelTopic,
-                                                            );
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        } catch {
-                                            // If entity not found or error, just try to unsubscribe from any matching topics
-                                            removed = false;
-                                        }
-                                    }
-
-                                    // Fallback: unsubscribe from any topics matching the entity name pattern
-                                    if (!removed) {
-                                        for (const subscription of currentSubscriptions) {
-                                            if (
-                                                (subscription.startsWith(
-                                                    this.ENTITY_TOPIC_PREFIX,
-                                                ) ||
-                                                    subscription.startsWith(
-                                                        this
-                                                            .METADATA_TOPIC_PREFIX,
-                                                    )) &&
-                                                subscription.includes(
-                                                    `:${entityName}:`,
-                                                )
-                                            ) {
-                                                if (
-                                                    channel === null ||
-                                                    subscription.endsWith(
-                                                        `:${channel}`,
-                                                    )
-                                                ) {
-                                                    ws.unsubscribe(
-                                                        subscription,
-                                                    );
-                                                    removed = true;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                const responseData = {
-                                    type: Communication.WebSocket.MessageType
-                                        .ENTITY_CHANNEL_UNSUBSCRIBE_RESPONSE,
-                                    timestamp: Date.now(),
-                                    requestId: typedRequest.requestId,
-                                    errorMessage: removed
-                                        ? null
-                                        : "Subscription not found",
-                                    entityName,
-                                    channel,
-                                    removed,
-                                };
-
-                                const responseParsed =
-                                    Communication.WebSocket.Z.EntityChannelUnsubscribeResponse.safeParse(
-                                        responseData,
-                                    );
-                                if (responseParsed.success) {
-                                    const responseString = JSON.stringify(
-                                        responseParsed.data,
-                                    );
-                                    responseSize = new TextEncoder().encode(
-                                        responseString,
-                                    ).length;
-                                    ws.send(responseString);
-                                }
-
-                                BunLogModule({
-                                    prefix: LOG_PREFIX,
-                                    message:
-                                        "WS ENTITY_CHANNEL_UNSUBSCRIBE_REQUEST handled",
-                                    debug: this.DEBUG,
-                                    suppress: this.SUPPRESS,
-                                    type: "debug",
-                                    data: {
-                                        requestId: typedRequest.requestId,
-                                        entityName,
-                                        channel,
-                                        removed,
-                                        durationMs:
-                                            performance.now() - receivedAt,
-                                    },
-                                });
-
-                                this.recordEndpointMetrics(
-                                    "WS_ENTITY_CHANNEL_UNSUBSCRIBE_REQUEST",
-                                    startTime,
-                                    requestSize,
-                                    responseSize,
-                                    removed,
-                                );
-                                break;
-                            }
-
-                            case Communication.WebSocket.MessageType
-                                .REFLECT_PUBLISH_REQUEST: {
-                                const req =
-                                    data as Communication.WebSocket.ReflectPublishRequestMessage;
-
-                                // Metrics tracking
-                                const startTime = performance.now();
-                                const messageSize = new TextEncoder().encode(
-                                    message,
-                                ).length;
-
-                                // basic validation
-                                const syncGroup = (req.syncGroup || "").trim();
-                                const channel = (req.channel || "").trim();
-                                if (!syncGroup || !channel) {
-                                    const endTime = performance.now();
-                                    const duration = endTime - startTime;
-                                    this.metricsCollector.recordReflect(
-                                        duration,
-                                        messageSize,
-                                        0, // delivered
-                                        false, // acknowledged
-                                    );
-                                    const errorAckData = {
-                                        type: Communication.WebSocket
-                                            .MessageType.REFLECT_ACK_RESPONSE,
-                                        timestamp: Date.now(),
-                                        requestId: req.requestId,
-                                        errorMessage:
-                                            "Missing syncGroup or channel",
-                                        syncGroup,
-                                        channel,
-                                        delivered: 0,
-                                    };
-                                    const errorAckParsed =
-                                        Communication.WebSocket.Z.ReflectAckResponse.safeParse(
-                                            errorAckData,
-                                        );
-                                    if (errorAckParsed.success) {
-                                        ws.send(
-                                            JSON.stringify(errorAckParsed.data),
-                                        );
-                                    }
-                                    BunLogModule({
-                                        prefix: LOG_PREFIX,
-                                        message:
-                                            "WS REFLECT_PUBLISH_REQUEST validation failed",
-                                        debug: this.DEBUG,
-                                        suppress: this.SUPPRESS,
-                                        type: "info",
-                                        data: {
-                                            syncGroup,
-                                            channel,
-                                            durationMs:
-                                                performance.now() - receivedAt,
-                                        },
-                                    });
-                                    break;
-                                }
-
-                                // ensure ACL warm for sender
-                                if (
-                                    !this.aclService?.isWarmed(session.agentId)
-                                ) {
-                                    await this.warmAgentAcl(
-                                        session.agentId,
-                                    ).catch(() => {});
-                                }
-
-                                // authorize: sender must be able to write (update or insert) the target group
-                                if (
-                                    !this.canUpdate(
-                                        session.agentId,
-                                        syncGroup,
-                                    ) &&
-                                    !this.canInsert(session.agentId, syncGroup)
-                                ) {
-                                    const endTime = performance.now();
-                                    const duration = endTime - startTime;
-                                    this.metricsCollector.recordReflect(
-                                        duration,
-                                        messageSize,
-                                        0, // delivered
-                                        false, // acknowledged
-                                    );
-                                    const unauthorizedAckData = {
-                                        type: Communication.WebSocket
-                                            .MessageType.REFLECT_ACK_RESPONSE,
-                                        timestamp: Date.now(),
-                                        requestId: req.requestId,
-                                        errorMessage:
-                                            "Not authorized (update or insert required)",
-                                        syncGroup,
-                                        channel,
-                                        delivered: 0,
-                                    };
-                                    const unauthorizedAckParsed =
-                                        Communication.WebSocket.Z.ReflectAckResponse.safeParse(
-                                            unauthorizedAckData,
-                                        );
-                                    if (unauthorizedAckParsed.success) {
-                                        ws.send(
-                                            JSON.stringify(
-                                                unauthorizedAckParsed.data,
-                                            ),
-                                        );
-                                    }
-                                    BunLogModule({
-                                        prefix: LOG_PREFIX,
-                                        message:
-                                            "WS REFLECT_PUBLISH_REQUEST unauthorized - update or insert required",
-                                        debug: this.DEBUG,
-                                        suppress: this.SUPPRESS,
-                                        type: "info",
-                                        data: {
-                                            syncGroup,
-                                            channel,
-                                            durationMs:
-                                                performance.now() - receivedAt,
-                                        },
-                                    });
-                                    break;
-                                }
-
-                                // enqueue for tick-gated fanout
-                                // let delivered = 0; // not used in fire-and-forget path
-                                const deliveryData = {
-                                    type: Communication.WebSocket.MessageType
-                                        .REFLECT_MESSAGE_DELIVERY,
-                                    timestamp: Date.now(),
-                                    requestId: "",
-                                    errorMessage: null,
-                                    syncGroup,
-                                    channel,
-                                    payload: req.payload,
-                                    fromSessionId: session.sessionId,
-                                };
-
-                                const deliveryParsed =
-                                    Communication.WebSocket.Z.ReflectDelivery.safeParse(
-                                        deliveryData,
-                                    );
-                                if (!deliveryParsed.success) {
-                                    throw new Error(
-                                        `Invalid delivery message format: ${deliveryParsed.error.message}`,
-                                    );
-                                }
-                                const delivery = deliveryParsed.data;
-                                const payloadStr = JSON.stringify(delivery);
-
-                                // Record pusher activity for this publish
-                                this.metricsCollector.recordPusher(
-                                    session.sessionId,
-                                    syncGroup,
-                                    channel,
-                                );
-
-                                this.enqueueReflect(
-                                    syncGroup,
-                                    channel,
-                                    session.sessionId,
-                                    payloadStr,
-                                    req.requestAcknowledgement
-                                        ? req.requestId
-                                        : undefined,
-                                );
-
-                                // Record endpoint metrics using request size; response size depends on ack
-                                const responseSize = 0; // ack sent after flush
-
-                                this.recordEndpointMetrics(
-                                    "WS_REFLECT_PUBLISH_REQUEST",
-                                    startTime,
-                                    messageSize,
-                                    responseSize,
-                                    true,
-                                );
-
-                                BunLogModule({
-                                    prefix: LOG_PREFIX,
-                                    message:
-                                        "WS REFLECT_PUBLISH_REQUEST enqueued for tick ",
-                                    debug: this.DEBUG,
-                                    suppress: this.SUPPRESS,
-                                    type: "debug",
-                                    data: {
-                                        syncGroup,
-                                        channel,
-                                        delivered: 0,
-                                        requestAcknowledgement:
-                                            req.requestAcknowledgement,
-                                        durationMs:
-                                            performance.now() - receivedAt,
-                                    },
-                                });
-                                break;
-                            }
-
-                            case Communication.WebSocket.MessageType.GAME_INPUT: {
-                                const gameInput = data as Communication.WebSocket.GameInputMessage;
-                                // Determine SyncGroup - for now, assuming 1 active game session per agent or 'default'
-                                // In a real scenario, the client should probably send the SyncGroup in the header or the session should map to one.
-                                // For this prototype, we'll iterate or use a fixed one.
-                                const syncGroup = "default"; // TODO: Resolver logic
-
-                                const gameLoop = this.gameLoops.get(syncGroup);
-                                if (gameLoop) {
-                                    const session = this.activeSessions.get(ws.data.sessionId);
-                                    if (session) {
-                                        gameLoop.handleInput(session, gameInput);
-                                    }
-                                }
-                                break;
-                            }
-
-                            default: {
-                                // Catch-all: Route unknown messages to the Game Loop if possible
-                                // This requires identifying the target SyncGroup.
-                                // For now, we log but allow extension here.
-                                
-                                const unsupportedErrorData: Communication.WebSocket.GeneralErrorResponseMessage =
-                                    {
-                                        type: Communication.WebSocket
-                                            .MessageType.GENERAL_ERROR_RESPONSE,
-                                        timestamp: Date.now(),
-                                        requestId: parsed.data.requestId,
-                                        errorMessage: `Unsupported message type: ${parsed.data.type}`,
-                                    };
-                                const unsupportedErrorParsed =
-                                    Communication.WebSocket.Z.GeneralErrorResponse.safeParse(
-                                        unsupportedErrorData,
-                                    );
-                                if (unsupportedErrorParsed.success) {
-                                    session.ws.send(
-                                        JSON.stringify(
-                                            unsupportedErrorParsed.data,
-                                        ),
-                                    );
-                                }
-                                BunLogModule({
-                                    prefix: LOG_PREFIX,
-                                    message: "WS unsupported message type",
-                                    debug: this.DEBUG,
-                                    suppress: this.SUPPRESS,
-                                    type: "info",
-                                    data: {
-                                        type: parsed.data.type,
-                                        requestId: parsed.data.requestId,
-                                        durationMs:
-                                            performance.now() - receivedAt,
-                                    },
-                                });
-                            }
+                        
+                        // We cast to any to facilitate checking against split enums, 
+                        // as TS might not infer the union overlap easily in switch details
+                        const msgType = data.type as any;
+
+                        if (Object.values(Communication.WebSocket.QueryMessageType).includes(msgType)) {
+                            await this.queryHandler.handle(ws, session, data as Communication.WebSocket.Message, context);
+                        } else if (Object.values(Communication.WebSocket.ReflectMessageType).includes(msgType)) {
+                            await this.reflectHandler.handle(ws, session, data as Communication.WebSocket.Message, context);
+                        } else if (Object.values(Communication.WebSocket.EntityMessageType).includes(msgType)) {
+                            await this.entityHandler.handle(ws, session, data as Communication.WebSocket.Message, context);
+                        } else if (Object.values(Communication.WebSocket.GameMessageType).includes(msgType)) {
+                            await this.gameHandler.handle(ws, session, data as Communication.WebSocket.Message, context);
+                        } else if (Object.values(Communication.WebSocket.AvatarMessageType).includes(msgType)) {
+                             await this.avatarHandler.handle(ws, session, data as Communication.WebSocket.Message, context);
+                        } else {
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message: "Unhandled message type",
+                                suppress: this.SUPPRESS,
+                                debug: this.DEBUG,
+                                type: "info",
+                                data: {
+                                    type: data.type,
+                                    requestId: data?.requestId,
+                                },
+                            });
                         }
+
+
                     } catch (error) {
                         BunLogModule({
                             prefix: LOG_PREFIX,

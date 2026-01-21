@@ -13,7 +13,6 @@ import type {
     Vector3,
 } from "@babylonjs/core";
 import { Quaternion as Q4, Vector3 as V3 } from "@babylonjs/core";
-import { AvatarFrameMessageSchema } from "@schemas";
 import { useThrottleFn } from "@vueuse/core";
 import {
     computed,
@@ -186,49 +185,9 @@ function quantizeRotation(rot: RotationObj, decimals: number): RotationObj {
     return { x: qx, y: qy, z: qz, w: qw };
 }
 
-// Ensure minimal entity row exists in DB for discovery (no transform persistence)
-async function ensureEntityRowExists(name: string): Promise<void> {
-    try {
-        await props.vircadiaWorld.client.connection.query({
-            query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms, general__expiry__delete_since_created_at_ms) VALUES ($1, $2, $3, NULL) ON CONFLICT (general__entity_name) DO NOTHING",
-            parameters: [name, props.entitySyncGroup, 120000],
-            timeoutMs: 5000,
-        });
-    } catch (e) {
-        console.warn("[BabylonMyAvatarEntity] ensureEntityRowExists failed", e);
-        recordError("ensureEntityRowExists", e);
-    }
-}
 
-// Persist a single metadata key/value for this avatar entity
-async function upsertMetadata(
-    entityNameArg: string,
-    key: string,
-    value: unknown,
-): Promise<void> {
-    try {
-        await props.vircadiaWorld.client.connection.query({
-            query: "INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__jsonb) VALUES ($1, $2, $3) ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__jsonb = EXCLUDED.metadata__jsonb",
-            parameters: [entityNameArg, key, value],
-            timeoutMs: 5000,
-        });
-    } catch (e) {
-        recordError("upsertMetadata", e);
-        console.warn("[BabylonMyAvatarEntity] upsertMetadata failed", e);
-    }
-}
 
-// Persist core avatar metadata immediately when available/changed
-async function persistCoreAvatarMetadata(): Promise<void> {
-    const name = entityName.value;
-    const fullSessionId = props.vircadiaWorld.connectionInfo.value.fullSessionId;
-    if (!name || !fullSessionId) return;
-    await upsertMetadata(name, "type", "avatar");
-    await upsertMetadata(name, "sessionId", fullSessionId);
-    if (props.modelFileName && props.modelFileName.length > 0) {
-        await upsertMetadata(name, "modelFileName", props.modelFileName);
-    }
-}
+
 
 // Periodically persist a compact pose snapshot for late joiners
 let poseSnapshotInterval: number | null = null;
@@ -329,21 +288,14 @@ async function persistPoseSnapshot(): Promise<void> {
         snapshot.joints = jointsValue;
 
     try {
-        // Write individual keys so readers can pick selectively
-        if (positionValue)
-            await upsertMetadata(name, "position", positionValue);
-        if (rotationValue)
-            await upsertMetadata(name, "rotation", rotationValue);
-        if (scaleValue) await upsertMetadata(name, "scale", scaleValue);
-        if (cameraOrientationValue)
-            await upsertMetadata(
-                name,
-                "cameraOrientation",
-                cameraOrientationValue,
-            );
-        if (jointsValue) await upsertMetadata(name, "joints", jointsValue);
-        // Also write aggregated snapshot
-        await upsertMetadata(name, "avatar_snapshot", snapshot);
+        await props.vircadiaWorld.client.connection.setAvatar({
+            syncGroup: props.entitySyncGroup,
+            avatarData: {
+                avatar__url: props.modelFileName || "babylon.avatar.glb",
+                avatar__data: snapshot,
+                joints: jointsValue as any,
+            } as any,
+        });
     } catch (e) {
         recordError("persistPoseSnapshot", e);
     }
@@ -461,71 +413,49 @@ const pushBatchedUpdates = useThrottleFn(async () => {
     });
 
     try {
-        // Reflect all avatar data via WS reflector (DB-free hot path)
-        const avatarFrame: Record<string, unknown> = {
-            type: "avatar_frame",
-            entityName: name,
-            ts: Date.now(),
+        // Construct payload compatible with Avatar.I_AvatarData and our server-side merge logic
+        // We pack position/rotation into avatar__data as well for legacy/snapshot compatibility
+        // The server will extract these to update the entity.
+        const avatarDataPayload: Record<string, unknown> = {
+            avatar__url: props.modelFileName || "babylon.avatar.glb",
+            avatar__data: {},
+            joints: {},
         };
 
-        // Include sessionId from VW connection (do not infer from entityName)
-        if (fullSessionId) {
-            (avatarFrame as { sessionId?: string }).sessionId =
-                fullSessionId;
-        }
-        if (props.modelFileName && props.modelFileName.length > 0) {
-            (avatarFrame as { modelFileName?: string }).modelFileName =
-                props.modelFileName;
-        }
-
-        // Add position, rotation, scale, camera data
-        for (const [key, value] of updates) {
-            if (
-                key === "position" ||
-                key === "rotation" ||
-                key === "scale" ||
-                key === "cameraOrientation"
-            ) {
-                avatarFrame[key] = value;
-            }
-        }
-
-        // Add joints as nested object
+        const avatarInnerData: Record<string, unknown> = {};
         const joints: Record<string, unknown> = {};
+
         for (const [key, value] of updates) {
-            if (key.startsWith("joint:")) {
+            if (key === "position" || key === "rotation") {
+                // Add to avatar__data so server extractions find it
+                avatarInnerData[key] = value;
+            } else if (key === "cameraOrientation") {
+                avatarInnerData[key] = value;
+            } else if (key.startsWith("joint:")) {
                 const jointName = key.substring("joint:".length);
                 joints[jointName] = value;
             }
         }
+
+        // Assign constructed objects
+        (avatarDataPayload as any).avatar__data = avatarInnerData;
         if (Object.keys(joints).length > 0) {
-            avatarFrame.joints = joints;
+            (avatarDataPayload as any).joints = joints;
         }
 
-        // Validate against schema and publish if we have any data to send (fire-and-forget)
-        if (Object.keys(avatarFrame).length > 3) {
-            let validatedPayload: unknown = avatarFrame;
-            try {
-                validatedPayload = AvatarFrameMessageSchema.parse(avatarFrame);
-            } catch (validationError) {
-                console.warn(
-                    "[BabylonMyAvatarEntity] avatar_frame validation failed",
-                    validationError,
-                );
-                // Still attempt to publish raw frame to avoid total data loss
-            }
-            props.vircadiaWorld.client.connection
-                .publishReflect({
-                    syncGroup: props.reflectSyncGroup,
-                    channel: props.reflectChannel,
-                    payload: validatedPayload,
-                })
-                .catch((error) => {
-                    console.warn(
-                        "[BabylonMyAvatarEntity] reflect publish failed",
-                        error,
-                    );
-                });
+        // Send via setAvatar (RPC to Game Loop Manager) 
+        // We use fire-and-forget style by not awaiting strict completion if we want speed,
+        // but setAvatar returns a Promise. pushBatchedUpdates is async throttled.
+        try {
+            await props.vircadiaWorld.client.connection.setAvatar({
+                syncGroup: props.entitySyncGroup,
+                avatarData: avatarDataPayload as any,
+                // Short timeout to avoid blocking queue too long if server is slow?
+                // But this is throttled anyway.
+            });
+        } catch (error) {
+            console.warn("[BabylonMyAvatarEntity] setAvatar failed", error);
+            recordError("pushBatchedUpdates_setAvatar", error);
         }
 
         // No DB persistence - data kept only in reflection
@@ -743,7 +673,8 @@ async function initializeEntity() {
 
     // Ensure a minimal entity row exists in DB so others can discover us
     if (entityName.value) {
-        await ensureEntityRowExists(entityName.value);
+        // Use RPC to set initial state - this registers us in the Game Loop
+        await persistPoseSnapshot();
     }
 
     // Create minimal entity data structure for compatibility
@@ -764,7 +695,8 @@ let afterPhysicsObserver: import("@babylonjs/core").Observer<Scene> | null =
 
 onMounted(async () => {
     await initializeEntity();
-    await persistCoreAvatarMetadata();
+    await initializeEntity();
+    // await persistCoreAvatarMetadata(); // Merged into persistPoseSnapshot
 
     afterPhysicsObserver = props.scene.onAfterRenderObservable.add(() => {
         if (!props.avatarNode) return;
@@ -797,7 +729,7 @@ onUnmounted(() => {
 watch(
     () => [props.modelFileName, props.vircadiaWorld.connectionInfo.value.fullSessionId],
     async () => {
-        await persistCoreAvatarMetadata();
+        await persistPoseSnapshot();
     },
     { immediate: false },
 );

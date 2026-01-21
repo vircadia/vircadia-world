@@ -29,10 +29,6 @@ const props = defineProps({
         type: Object as () => VircadiaWorldInstance,
         required: true,
     },
-    discoveryPollingInterval: {
-        type: Number,
-        required: true,
-    },
     reflectSyncGroup: { type: String, required: true },
     reflectChannel: { type: String, required: true },
     entitySyncGroup: { type: String, required: true },
@@ -84,7 +80,7 @@ const reflectStats = ref({
     avgFrameIntervalMs: 0,
 });
 
-let reflectUnsubscribe: (() => void) | null = null;
+let gameStateUnsubscribe: (() => void) | null = null;
 
 const loadingBySession = ref<Record<string, boolean>>({});
 
@@ -92,183 +88,12 @@ const areOtherAvatarsLoading = computed(() => {
     return Object.values(loadingBySession.value).some((value) => value);
 });
 
-// Track metadata loads per session to avoid repeated queries
-const metadataLoadedSessions = new Set<string>();
-const metadataLoadingSessions = new Set<string>();
-
 function markLoaded(sessionId: string): void {
     loadingBySession.value[sessionId] = false;
 }
 
 function markDisposed(sessionId: string): void {
     delete loadingBySession.value[sessionId];
-}
-
-// removed unused void references; methods are exposed via defineExpose
-
-async function pollForOtherAvatars(): Promise<void> {
-    try {
-        const startTime = Date.now();
-
-        const result = await vircadiaWorld.client.connection.query({
-            query: "SELECT general__entity_name FROM entity.entities WHERE group__sync = $1 AND general__entity_name LIKE 'avatar:%'",
-            parameters: [props.entitySyncGroup],
-            timeoutMs: 5000,
-        });
-
-        if (result.result && Array.isArray(result.result)) {
-            const foundFullSessionIds: string[] = [];
-            const entities = result.result as Array<{
-                general__entity_name: string;
-            }>;
-
-            for (const entity of entities) {
-                const match =
-                    entity.general__entity_name.match(/^avatar:(.+)$/);
-                if (match) {
-                    if (match && match[1] !== vircadiaWorld.connectionInfo.value.fullSessionId) {
-                        foundFullSessionIds.push(match[1]);
-                        if (loadingBySession.value[match[1]] == null) {
-                            loadingBySession.value[match[1]] = true;
-                        }
-                        // Initialize data holders immediately to avoid undefineds downstream
-                        initializeSessionDefaults(match[1]);
-                        // Attempt metadata backfill for this session
-                        void backfillSessionFromMetadata(match[1]);
-                    }
-                }
-            }
-
-            otherAvatarSessionIds.value = foundFullSessionIds;
-            discoveryStats.value.rows = entities.length;
-        }
-
-        discoveryStats.value.lastDurationMs = Date.now() - startTime;
-        discoveryStats.value.timeouts = 0;
-    } catch (error) {
-        console.error("[Discovery] Poll error:", error);
-        discoveryStats.value.errors += 1;
-        discoveryStats.value.lastError =
-            error instanceof Error ? error.message : String(error);
-        discoveryStats.value.lastErrorAt = new Date();
-    }
-}
-
-function subscribeReflect(): void {
-    if (reflectUnsubscribe) reflectUnsubscribe();
-    reflectUnsubscribe = vircadiaWorld.client.connection.subscribeReflect(
-        props.reflectSyncGroup,
-        props.reflectChannel,
-        (message) => {
-            const frameStartTime = Date.now();
-            try {
-                const payload = message.payload as unknown;
-                const frame = parseAvatarFrameMessage(payload);
-                if (!frame) {
-                    // Log bad frames for debugging
-                    reflectStats.value.badFrames += 1;
-                    reflectStats.value.lastBadFrameAt = new Date();
-                    reflectStats.value.lastBadFrameError = "Failed to parse avatar frame message";
-                    console.warn("[Reflect] Bad frame received - could not parse:", payload);
-                    return;
-                }
-
-                let target: string | null = frame.sessionId ?? null;
-                if (!target && frame.entityName?.startsWith("avatar:")) {
-                    target = frame.entityName.replace(/^avatar:/, "");
-                }
-                if (!target) {
-                    reflectStats.value.badFrames += 1;
-                    reflectStats.value.lastBadFrameAt = new Date();
-                    reflectStats.value.lastBadFrameError = "No valid target session ID";
-                    console.warn("[Reflect] Bad frame received - no valid target:", frame);
-                    return;
-                }
-                if (target === vircadiaWorld.connectionInfo.value.fullSessionId) {
-                    // Skip our own frames
-                    return;
-                }
-
-                // Track frame timing
-                reflectStats.value.totalFrames += 1;
-                reflectStats.value.lastFrameAt = new Date();
-
-                // Track recent frame intervals for average calculation
-                const now = Date.now();
-                reflectStats.value.recentFrameTimes.push(now);
-                if (reflectStats.value.recentFrameTimes.length > 100) {
-                    reflectStats.value.recentFrameTimes.shift(); // Keep only last 100 frames
-                }
-
-                // Calculate average frame interval if we have enough data
-                if (reflectStats.value.recentFrameTimes.length >= 2) {
-                    const intervals = [];
-                    for (let i = 1; i < reflectStats.value.recentFrameTimes.length; i++) {
-                        intervals.push(reflectStats.value.recentFrameTimes[i] - reflectStats.value.recentFrameTimes[i - 1]);
-                    }
-                    reflectStats.value.avgFrameIntervalMs = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-                }
-
-                // Ensure data structures exist
-                initializeSessionDefaults(target);
-
-                const existingBase = avatarDataMap.value[target];
-                const modelFileName =
-                    frame.modelFileName ||
-                    existingBase?.modelFileName;
-                const cameraOrientation = frame.cameraOrientation ||
-                    existingBase?.cameraOrientation || {
-                    alpha: 0,
-                    beta: 0,
-                    radius: 0,
-                };
-                avatarDataMap.value[target] = {
-                    type: "avatar",
-                    sessionId: target,
-                    modelFileName,
-                    cameraOrientation,
-                } as AvatarBaseData;
-
-                if (frame.position)
-                    positionDataMap.value[target] = frame.position;
-                if (frame.rotation)
-                    rotationDataMap.value[target] = frame.rotation;
-                if (frame.position || frame.rotation)
-                    lastBasePollTimestamps.value[target] = new Date();
-
-                if (frame.joints && jointDataMap.value[target]) {
-                    for (const [jointName, jointPayload] of Object.entries(
-                        frame.joints,
-                    )) {
-                        const parsed = parseAvatarJoint({
-                            ...(jointPayload as Record<string, unknown>),
-                            jointName,
-                            sessionId: target,
-                            type: "avatarJoint",
-                        }) as AvatarJointMetadata | null;
-                        if (parsed) {
-                            jointDataMap.value[target].set(jointName, parsed);
-                        }
-                    }
-                }
-
-                if (frame.chat_messages) {
-                    chatDataMap.value[target] = frame.chat_messages;
-                }
-
-                // Update base (camera) and generic timestamps
-                if (frame.cameraOrientation)
-                    lastCameraPollTimestamps.value[target] = new Date();
-                lastPollTimestamps.value[target] = new Date();
-            } catch (error) {
-                // Log parse errors for debugging
-                reflectStats.value.badFrames += 1;
-                reflectStats.value.lastBadFrameAt = new Date();
-                reflectStats.value.lastBadFrameError = error instanceof Error ? error.message : String(error);
-                console.error("[Reflect] Frame processing error:", error, "for payload:", message.payload);
-            }
-        },
-    );
 }
 
 function initializeSessionDefaults(sessionId: string): void {
@@ -304,159 +129,105 @@ function initializeSessionDefaults(sessionId: string): void {
         lastCameraPollTimestamps.value[sessionId] = null;
 }
 
-async function backfillSessionFromMetadata(sessionId: string): Promise<void> {
-    if (
-        metadataLoadedSessions.has(sessionId) ||
-        metadataLoadingSessions.has(sessionId)
-    )
-        return;
-    metadataLoadingSessions.add(sessionId);
-    try {
-        const entityName = `avatar:${sessionId}`;
-        const result = await vircadiaWorld.client.connection.query({
-            query: "SELECT m.metadata__key, m.metadata__jsonb FROM entity.entity_metadata AS m JOIN entity.entities AS e ON e.general__entity_name = m.general__entity_name WHERE m.general__entity_name = $1 AND e.group__sync = $2 AND m.metadata__key IN ('type','sessionId','modelFileName','position','rotation','scale','cameraOrientation','joints','avatar_snapshot','chat_messages')",
-            parameters: [entityName, props.entitySyncGroup],
-            timeoutMs: 5000,
-        });
-        if (!result || !Array.isArray(result.result)) return;
+function subscribeGameState(): void {
+    if (gameStateUnsubscribe) gameStateUnsubscribe();
+    console.log("[Discovery] Subscribing to Game State Updates");
+    // Cast to any to access subscribeGameState until types are fully propagated
+    gameStateUnsubscribe = (vircadiaWorld.client.connection as any).subscribeGameState(
+        (message: any) => {
+            // Filter by sync group
+            if (message.syncGroup !== props.entitySyncGroup) return;
 
-        initializeSessionDefaults(sessionId);
+            if (message.updateType !== "FULL_SNAPSHOT" && message.updateType !== "DELTA") return;
 
-        // Apply individual keys first
-        const rows = result.result as Array<{
-            metadata__key: string;
-            metadata__jsonb: unknown;
-        }>;
-        const keyToValue = new Map(
-            rows.map((r) => [r.metadata__key, r.metadata__jsonb]),
-        );
-
-        const base = avatarDataMap.value[sessionId];
-        const modelFileName =
-            (keyToValue.get("modelFileName") as string) ||
-            base.modelFileName ||
-            "babylon.avatar.glb";
-        const cameraOrientation = (keyToValue.get("cameraOrientation") as {
-            alpha: number;
-            beta: number;
-            radius: number;
-        }) ||
-            base.cameraOrientation || { alpha: 0, beta: 0, radius: 0 };
-        avatarDataMap.value[sessionId] = {
-            type: "avatar",
-            sessionId,
-            modelFileName,
-            cameraOrientation,
-        } as AvatarBaseData;
-
-        const posPayload = keyToValue.get("position");
-        if (posPayload) {
-            const parsed = parseAvatarPosition(posPayload);
-            if (parsed) positionDataMap.value[sessionId] = parsed;
-        }
-        const rotPayload = keyToValue.get("rotation");
-        if (rotPayload) {
-            const parsed = parseAvatarRotation(rotPayload);
-            if (parsed) rotationDataMap.value[sessionId] = parsed;
-        }
-        const jointsPayload = keyToValue.get("joints");
-        if (jointsPayload && typeof jointsPayload === "object") {
-            for (const [jointName, jointPayload] of Object.entries(
-                jointsPayload as Record<string, unknown>,
-            )) {
-                const parsed = parseAvatarJoint(jointPayload) as
-                    | (AvatarJointMetadata & { type: "avatarJoint" })
-                    | null;
-                if (parsed)
-                    jointDataMap.value[sessionId].set(jointName, parsed);
-            }
-        }
-
-        const chatPayload = keyToValue.get("chat_messages");
-        if (chatPayload) {
-            const parsed = ChatEntityMetadataSchema.safeParse({ messages: chatPayload });
-            if (parsed.success) {
-                chatDataMap.value[sessionId] = parsed.data.messages;
-            }
-        }
-
-        // If aggregated snapshot exists, apply any missing aspects
-        const snapshot = keyToValue.get("avatar_snapshot") as
-            | {
-                position?: unknown;
-                rotation?: unknown;
-                scale?: unknown;
-                cameraOrientation?: {
-                    alpha: number;
-                    beta: number;
-                    radius: number;
+            // TODO: Use imported type when availability is confirmed
+            const entities = message.data as Array<{
+                id: string;
+                position: { x: number; y: number; z: number };
+                rotation: { x: number; y: number; z: number; w: number };
+                avatar?: {
+                    avatar__url?: string;
+                    joints?: Record<string, any>;
+                    avatar__data?: any;
                 };
-                joints?: Record<string, unknown>;
-            }
-            | undefined;
-        if (snapshot) {
-            if (snapshot.position && !posPayload) {
-                const parsed = parseAvatarPosition(snapshot.position);
-                if (parsed) positionDataMap.value[sessionId] = parsed;
-            }
-            if (snapshot.rotation && !rotPayload) {
-                const parsed = parseAvatarRotation(snapshot.rotation);
-                if (parsed) rotationDataMap.value[sessionId] = parsed;
-            }
-            if (
-                snapshot.cameraOrientation &&
-                !keyToValue.get("cameraOrientation")
-            ) {
-                avatarDataMap.value[sessionId] = {
-                    ...avatarDataMap.value[sessionId],
-                    cameraOrientation: snapshot.cameraOrientation,
-                } as AvatarBaseData;
-            }
-            if (snapshot.joints && !jointsPayload) {
-                for (const [jointName, jointPayload] of Object.entries(
-                    snapshot.joints as Record<string, unknown>,
-                )) {
-                    const parsed = parseAvatarJoint(jointPayload) as
-                        | (AvatarJointMetadata & { type: "avatarJoint" })
-                        | null;
-                    if (parsed)
-                        jointDataMap.value[sessionId].set(jointName, parsed);
-                }
-            }
-        }
+            }>;
 
-        metadataLoadedSessions.add(sessionId);
-    } catch (e) {
-        console.warn("[OtherAvatars] metadata backfill failed", e);
-    } finally {
-        metadataLoadingSessions.delete(sessionId);
-    }
+            const foundFullSessionIds: string[] = [];
+
+            for (const entity of entities) {
+                const sessionId = entity.id;
+                // Skip self
+                const info = vircadiaWorld.connectionInfo.value;
+                const selfAgentId = info.agentId;
+                const selfSessionId = info.sessionId;
+
+                // entity.id is agentId from server
+                if (sessionId === selfAgentId || sessionId === selfSessionId) continue;
+
+                foundFullSessionIds.push(sessionId);
+                initializeSessionDefaults(sessionId);
+
+                // Position & Rotation
+                if (entity.position) positionDataMap.value[sessionId] = entity.position;
+                if (entity.rotation) rotationDataMap.value[sessionId] = entity.rotation;
+
+                // Avatar Data (if present)
+                if (entity.avatar) {
+                    const existingBase = avatarDataMap.value[sessionId];
+                    const modelFileName = entity.avatar.avatar__url || existingBase?.modelFileName || "babylon.avatar.glb";
+
+                    // Extract camera orientation from avatar__data
+                    let cameraOrientation = existingBase?.cameraOrientation;
+                    if (entity.avatar.avatar__data && typeof entity.avatar.avatar__data === 'object') {
+                        const ad = entity.avatar.avatar__data as any;
+                        if (ad.cameraOrientation) {
+                            cameraOrientation = ad.cameraOrientation;
+                        }
+                    }
+
+                    avatarDataMap.value[sessionId] = {
+                        ...existingBase,
+                        modelFileName,
+                        sessionId,
+                        type: "avatar",
+                        cameraOrientation: cameraOrientation || { alpha: 0, beta: 0, radius: 0 }
+                    };
+
+                    // Joints
+                    if (entity.avatar.joints) {
+                        const targetJoints = jointDataMap.value[sessionId];
+                        for (const [jointName, jointData] of Object.entries(entity.avatar.joints)) {
+                            // Assuming jointData matches parseAvatarJoint expectation or is close enough
+                            // The server sends { position, rotation, scale }
+                            const parsed = parseAvatarJoint({ ...jointData as any, jointName, sessionId, type: "avatarJoint" });
+                            if (parsed) {
+                                targetJoints.set(jointName, parsed as AvatarJointMetadata);
+                            }
+                        }
+                    }
+                }
+
+                lastPollTimestamps.value[sessionId] = new Date();
+            }
+
+            otherAvatarSessionIds.value = foundFullSessionIds;
+
+            // Update stats (reusing reflectStats for now to avoid breaking exposed API)
+            reflectStats.value.totalFrames++;
+            reflectStats.value.lastFrameAt = new Date();
+        }
+    );
 }
 
-// Use useInterval for polling other avatars
-const { pause: pauseDiscovery, resume: resumeDiscovery } = useInterval(
-    computed(() => {
-        const interval = props.discoveryPollingInterval;
-        console.log(`[Discovery] Polling interval: ${interval}ms`);
-        return interval;
-    }),
-    {
-        controls: true,
-        immediate: true,
-        callback: pollForOtherAvatars,
-    },
-);
-
 onMounted(() => {
-    console.log("[Discovery] Component mounted, starting discovery...");
+    console.log("[Discovery] Component mounted, listening for Game State...");
     // Wait for connection to be ready before subscribing
     let unwatch: (() => void) | null = null;
     unwatch = watch(
         () => vircadiaWorld.connectionInfo.value.status,
         (s) => {
             if (s === "connected") {
-                subscribeReflect();
-                resumeDiscovery();
+                subscribeGameState();
                 if (unwatch) {
                     const stop = unwatch;
                     unwatch = null;
@@ -470,14 +241,8 @@ onMounted(() => {
 
 onUnmounted(() => {
     console.log("[Discovery] Component unmounting, stopping discovery...");
-    if (reflectUnsubscribe) reflectUnsubscribe();
-    pauseDiscovery();
+    if (gameStateUnsubscribe) gameStateUnsubscribe();
 });
-
-watch(
-    () => [props.reflectSyncGroup, props.reflectChannel],
-    () => subscribeReflect(),
-);
 
 defineExpose({
     otherAvatarSessionIds,

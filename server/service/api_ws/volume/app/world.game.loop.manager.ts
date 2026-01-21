@@ -1,6 +1,7 @@
 
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+import { Avatar } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.avatar";
 import type { WorldSession } from "./world.api.ws.manager";
 
 const LOG_PREFIX = "GameLoopManager";
@@ -10,6 +11,7 @@ export interface EntityState {
     position: { x: number; y: number; z: number };
     velocity: { x: number; y: number; z: number };
     rotation: { x: number; y: number; z: number; w: number };
+    avatar?: Avatar.I_AvatarData;
     lastUpdated: number;
 }
 
@@ -99,6 +101,78 @@ export class GameLoopManager {
         // console.log(`[${this.syncGroup}] Input from ${session.agentId}: ${message.inputType}`);
     }
 
+    public updateAvatar(agentId: string, data: Avatar.I_AvatarData) {
+        let entity = this.entities.get(agentId);
+        if (!entity) {
+            // Auto-create entity if it doesn't exist
+             entity = {
+                id: agentId,
+                position: { x: 0, y: 10, z: 0 },
+                velocity: { x: 0, y: 0, z: 0 },
+                rotation: { x: 0, y: 0, z: 0, w: 1 },
+                lastUpdated: Date.now(),
+            };
+            this.entities.set(agentId, entity);
+        }
+
+        // Merge logic
+        if (!entity.avatar) {
+            entity.avatar = data;
+        } else {
+            // Deep merge joints
+            if (data.joints) {
+                if (!entity.avatar.joints) {
+                    entity.avatar.joints = data.joints;
+                } else {
+                    entity.avatar.joints = {
+                        ...entity.avatar.joints,
+                        ...data.joints,
+                    };
+                }
+            }
+
+            // Merge other top-level fields
+            entity.avatar = {
+                ...entity.avatar,
+                ...data,
+                // Ensure merged joints are preserved
+                joints: entity.avatar.joints,
+            };
+        }
+
+        // Extract Position & Rotation from avatar__data if available
+        // The client sends these inside avatar__data for snapshot/persistence compatibility
+        if (entity.avatar.avatar__data) {
+            const ad = entity.avatar.avatar__data as any;
+            if (ad.position) {
+                entity.position = ad.position;
+            }
+            if (ad.rotation) {
+                entity.rotation = ad.rotation;
+            }
+        }
+
+        entity.lastUpdated = Date.now();
+        
+        // Log update (verbose, maybe change to debug)
+        // BunLogModule({
+        //     prefix: LOG_PREFIX,
+        //     message: `Avatar updated for ${agentId}`,
+        //     type: "debug",
+        // });
+    }
+
+    public removeEntity(entityId: string) {
+        if (this.entities.has(entityId)) {
+            this.entities.delete(entityId);
+             BunLogModule({
+                prefix: LOG_PREFIX,
+                message: `Entity removed: ${entityId}`,
+                type: "debug",
+            });
+        }
+    }
+
     private tick() {
         const now = Date.now();
         const dt = this.tickRateMs / 1000; // Seconds
@@ -117,6 +191,7 @@ export class GameLoopManager {
             const updateMessage = new Communication.WebSocket.GameStateUpdateMessage({
                 updateType: "FULL_SNAPSHOT", // Or DELTA
                 updateData: Array.from(this.entities.values()),
+                syncGroup: this.syncGroup,
             });
             this.broadcastCallback(JSON.stringify(updateMessage));
         }
@@ -126,5 +201,41 @@ export class GameLoopManager {
             this.lastSnapshotTime = now;
             this.persistCallback(Array.from(this.entities.values()));
         }
+
+        // 4. Stale/Expiration Check (Every ~5 seconds, to match persistence or separately)
+        if (now % 5000 < dt * 1000 * 2) { // Roughly every 5 seconds
+             this.pruneStaleEntities(now);
+        }
+    }
+
+    private pruneStaleEntities(now: number) {
+        // Remove entities that haven't been updated in 5 minutes
+        // This is a safety net; connection close should handle immediate removal
+        const STALE_THRESHOLD_MS = 5 * 60 * 1000; 
+        
+        for (const [id, entity] of this.entities.entries()) {
+            if (now - entity.lastUpdated > STALE_THRESHOLD_MS) {
+                this.entities.delete(id);
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: `Pruned stale entity: ${id}`,
+                    type: "info",
+                    data: { id, age: now - entity.lastUpdated }
+                });
+            }
+        }
+    }
+
+    public getAvatars(): { sessionId: string; avatarData: Avatar.I_AvatarData }[] {
+        const avatars: { sessionId: string; avatarData: Avatar.I_AvatarData }[] = [];
+        for (const [id, entity] of this.entities.entries()) {
+            if (entity.avatar) {
+                avatars.push({
+                    sessionId: id,
+                    avatarData: entity.avatar,
+                });
+            }
+        }
+        return avatars;
     }
 }

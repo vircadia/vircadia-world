@@ -242,7 +242,6 @@
                                                                 :is-connecting="isConnecting"
                                                                 :avatar-loading="avatarLoading"
                                                                 :other-avatars-loading="otherAvatarsLoading"
-                                                                :models-loading="modelsLoading"
                                                                 :is-authenticating="isAuthenticating"
                                                                 :is-authenticated="isAuthenticated"
                                                                 :avatar-model-step="avatarModelStep"
@@ -464,24 +463,6 @@
 
                                                                 </BabylonMyAvatar>
                                                             </BabylonMyAvatarMKBController>
-
-                                                            <!-- BabylonModel components provided by DB-scanned list -->
-                                                            <!-- <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
-                                            <BabylonModel v-for="def in models" :key="def.fileName" :def="def"
-                                                :scene="sceneNonNull" :vircadia-world="vircadiaWorld" ref="modelRefs"
-                                                v-slot="{ meshes, def: slotDef }">
-                                                <BabylonModelPhysics :scene="sceneNonNull" :meshes="meshes"
-                                                    :def="slotDef" ref="modelPhysicsRefs" />
-                                            </BabylonModel>
-
-                                            <BabylonModelsDebugOverlay v-model="modelsDebugOpen" :models="models"
-                                                :model-runtime="modelRuntime" :physics-summaries="physicsSummaries" />
-                                            <div style="display: none">
-                                                {{setModelRuntimeFromRefs(models, (modelRefs).map((r: any) =>
-                                                    r?.meshes))}}
-                                                {{ refreshPhysicsSummaries(models) }}
-                                            </div>
-                                        </BabylonModels> -->
                                                         </template>
                                                     </BabylonTalkLevel>
                                                 </template>
@@ -537,12 +518,6 @@ import { useRouteComponents, type NamedComponent } from "@/composables/useUserCo
 import BabylonCanvas from "@/components/BabylonCanvas.vue";
 import BabylonInspector from "@/components/BabylonInspector.vue";
 import BabylonMic from "@/components/BabylonMic.vue";
-import BabylonModel from "@/components/BabylonModel.vue";
-import BabylonModelPhysics, {
-    type PhysicsSummary,
-} from "@/components/BabylonModelPhysics.vue";
-// import BabylonModels from "@/components/BabylonModels.vue";
-// import BabylonModelsDebugOverlay from "@/components/BabylonModelsDebugOverlay.vue";
 import BabylonMyAvatar, {
     type AvatarDefinition,
 } from "@/components/BabylonMyAvatar.vue";
@@ -597,16 +572,6 @@ const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
 const otherAvatarsRef = ref<InstanceType<typeof BabylonOtherAvatars> | null>(
     null,
 );
-
-// Combined otherAvatarsMetadata removed; use separate maps from BabylonOtherAvatars
-const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
-const modelPhysicsRefs = ref<
-    (InstanceType<typeof BabylonModelPhysics> | null)[]
->([]);
-
-// Other avatar discovery handled by BabylonOtherAvatars wrapper
-
-// Physics handled by BabylonCanvas
 
 // State for debug overlays with persistence across reloads
 const cameraDebugOpen = useStorage<boolean>("vrca.debug.camera", false);
@@ -1175,20 +1140,6 @@ const avatarLoading = computed(
 );
 // Other avatars loading state is handled internally by BabylonOtherAvatars component
 const otherAvatarsLoading = computed(() => false); // Placeholder - loading state managed by component
-const modelsLoading = computed(() =>
-    modelRefs.value.some((m) => {
-        const mm = m as unknown as {
-            isEntityCreating?: boolean;
-            isEntityRetrieving?: boolean;
-            isAssetLoading?: boolean;
-        } | null;
-        return Boolean(
-            mm?.isEntityCreating ||
-            mm?.isEntityRetrieving ||
-            mm?.isAssetLoading,
-        );
-    }),
-);
 
 // Runtime info for models to augment overlay (e.g., mesh counts)
 type ModelRuntimeInfo = { meshCount: number };
@@ -1217,21 +1168,6 @@ function getPhysicsShape(type: unknown): string {
             return "Mesh";
         default:
             return type ? String(type) : "Mesh";
-    }
-}
-
-// Physics summaries reported by BabylonModelPhysics instances
-const physicsSummaries = ref<Record<string, PhysicsSummary>>({});
-function refreshPhysicsSummaries(
-    models: { entityName: string; fileName: string }[],
-) {
-    for (let i = 0; i < models.length; i++) {
-        const id = models[i].entityName || models[i].fileName;
-        const comp = modelPhysicsRefs.value[i] as unknown as {
-            lastEmittedSummary?: { value?: PhysicsSummary };
-        } | null;
-        const summary = comp?.lastEmittedSummary?.value;
-        if (id && summary) physicsSummaries.value[id] = summary;
     }
 }
 

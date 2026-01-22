@@ -16,7 +16,6 @@ const props = defineProps<{
     isConnecting: boolean;
     avatarLoading: boolean;
     otherAvatarsLoading: boolean;
-    modelsLoading: boolean;
     isAuthenticating: boolean;
     isAuthenticated: boolean;
     avatarModelStep?: string;
@@ -27,8 +26,7 @@ const props = defineProps<{
 const isLoading = computed(
     () =>
         props.avatarLoading ||
-        props.otherAvatarsLoading ||
-        props.modelsLoading,
+        props.otherAvatarsLoading
 );
 
 const visible = computed(
@@ -65,7 +63,6 @@ const text = computed(() => {
     states.push(
         `• Other Avatars: ${props.otherAvatarsLoading ? "Loading" : "Ready"}`,
     );
-    states.push(`• Models: ${props.modelsLoading ? "Loading" : "Ready"}`);
     states.push(
         `• Authentication: ${props.isAuthenticating ? "Authenticating" : "Authenticated"}`,
     );

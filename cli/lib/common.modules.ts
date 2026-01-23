@@ -573,7 +573,7 @@ export namespace Server_CLI {
                 !serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN.startsWith(
                     "http",
                 )
-                    ? `http://${serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN}`
+                    ? `http://localhost, http://127.0.0.1`
                     : serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN,
             VRCA_SERVER_SERVICE_CADDY_EMAIL:
                 serverConfiguration.VRCA_SERVER_SERVICE_CADDY_EMAIL,

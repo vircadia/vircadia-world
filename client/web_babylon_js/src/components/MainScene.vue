@@ -79,7 +79,7 @@
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                         'mdi-speedometer-slow'
-                                        }}</v-icon>
+                                    }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -114,7 +114,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                     <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                        }}</v-icon>
+                                    }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="fly">
@@ -150,7 +150,7 @@
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                             'mdi-file-tree-outline'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -390,7 +390,8 @@
                                                                                 :mouse-lock-camera-rotate-toggle="controls.mouseLockCameraRotateToggle || controls.rightMouseDown"
                                                                                 :mouse-lock-camera-avatar-rotate-toggle="controls.mouseLockCameraAvatarRotateToggle || controls.rightMouseDown"
                                                                                 :override-mouse-lock-camera-avatar-rotate="controls.keyState.turnLeft || controls.keyState.turnRight"
-                                                                                :snap-strategy="'vertical-only'" />
+                                                                                :snap-strategy="'vertical-only'"
+                                                                                :debug="cameraDebugOpen" />
                                                                             <!-- Non-visual animation loaders now slotted under model component -->
                                                                             <BabylonMyAvatarAnimation
                                                                                 v-for="anim in animations"

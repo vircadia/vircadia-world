@@ -51,6 +51,7 @@ const props = defineProps({
     overrideMouseLockCameraAvatarRotate: { type: Boolean, required: true },
     // Snap Preference
     snapStrategy: { type: String as () => "vertical-first" | "horizontal-first" | "vertical-only", required: false, default: "vertical-only" },
+    debug: { type: Boolean, required: false, default: false },
 });
 
 // Single Camera
@@ -281,6 +282,19 @@ function setupCamera(): void {
         let bestCandidate = candidates[0]; // Default to ideal
         let bestPos = null;
 
+        if (props.debug) {
+            clearDebugVisuals();
+            // Draw Ideal Line (Blue)
+            if (targetPos) {
+                const idealPos = targetPos.add(new Vector3(
+                    idealState.value.radius * Math.sin(idealState.value.beta) * Math.cos(idealState.value.alpha),
+                    idealState.value.radius * Math.cos(idealState.value.beta),
+                    idealState.value.radius * Math.sin(idealState.value.beta) * Math.sin(idealState.value.alpha)
+                ));
+                drawDebugRay(targetPos, idealPos, new Color3(0, 0, 1), props.scene);
+            }
+        }
+
         for (const cand of candidates) {
             // Compute Cartesian
             // Standard Spherical -> Cartesian
@@ -291,6 +305,13 @@ function setupCamera(): void {
 
             const pos = targetPos.add(new Vector3(x, y, z));
             const vis = checkVisibility(targetPos, pos, props.scene);
+
+            if (props.debug) {
+                // Visualize Candidate
+                // Red if blocked, Green if clear
+                const color = !vis.hasHit ? new Color3(0, 1, 0) : new Color3(1, 0, 0);
+                drawDebugRay(targetPos, pos, color, props.scene);
+            }
 
             if (!vis.hasHit) {
                 bestPos = pos;
@@ -319,6 +340,11 @@ function setupCamera(): void {
             } else {
                 bestPos = fullPos;
             }
+        }
+
+        if (props.debug && bestPos) {
+            // Draw Snapped Choice (Yellow)
+            drawDebugRay(targetPos, bestPos, new Color3(1, 1, 0), props.scene);
         }
 
         // 4. Smooth & Apply
@@ -374,7 +400,64 @@ function setupCamera(): void {
     });
 }
 
-onMounted(() => setupCamera());
+// Debug Visuals
+const rayLines: Array<{ dispose: () => void }> = [];
+const debugCamera: Ref<ArcRotateCamera | null> = ref(null);
+
+function clearDebugVisuals() {
+    rayLines.forEach((r) => r.dispose());
+    rayLines.length = 0;
+}
+
+function drawDebugRay(from: Vector3, to: Vector3, color: Color3, scene: Scene) {
+    const points = [from, to];
+    const line = MeshBuilder.CreateLines("debugRay", { points }, scene);
+    line.color = color;
+    rayLines.push(line);
+}
+
+function updateDebugMode() {
+    if (!props.scene) return;
+
+    if (props.debug) {
+        // Enable Debug: Switch to Free Camera
+        if (!debugCamera.value) {
+            // Create a free camera at a high vantage point
+            const freeCam = new ArcRotateCamera(
+                "debug-free-camera",
+                camera.value?.alpha ?? 0,
+                (camera.value?.beta ?? Math.PI / 3) - 0.5,
+                (camera.value?.radius ?? 10) + 10,
+                camera.value?.target ?? Vector3.Zero(),
+                props.scene
+            );
+            freeCam.attachControl(props.scene.getEngine().getRenderingCanvas(), true);
+            debugCamera.value = freeCam;
+            props.scene.activeCamera = freeCam;
+
+            // Detach main camera control
+            camera.value?.detachControl();
+        }
+    } else {
+        // Disable Debug: Restore Main Camera
+        if (debugCamera.value) {
+            debugCamera.value.dispose();
+            debugCamera.value = null;
+        }
+        if (camera.value) {
+            props.scene.activeCamera = camera.value;
+            camera.value.attachControl(props.scene.getEngine().getRenderingCanvas(), true);
+        }
+        clearDebugVisuals();
+    }
+}
+
+watch(() => props.debug, updateDebugMode);
+
+onMounted(() => {
+    setupCamera();
+    updateDebugMode();
+});
 
 watch(() => props.avatarNode, () => {
     if (camera.value) camera.value.lockedTarget = ensureFollowTarget();
@@ -386,6 +469,8 @@ onUnmounted(() => {
     if (canvas && contextMenuHandler) canvas.removeEventListener("contextmenu", contextMenuHandler);
 
     camera.value?.dispose();
+    debugCamera.value?.dispose();
+    clearDebugVisuals();
     followTargetMesh?.dispose();
 });
 

@@ -129,3 +129,31 @@ export function resolveServices(input: string[]): ServiceDefinition[] {
 
     return Array.from(resolved);
 }
+
+import path from "path";
+
+export function getServicePath(service: ServiceDefinition): string | null {
+    // Map service names to paths
+    const projectRoot = path.join(import.meta.dir, "../.."); 
+    
+    switch (service.name) {
+        case "client":
+            return path.join(projectRoot, "client/web_babylon_js");
+        case "sdk":
+            return path.join(projectRoot, "sdk/vircadia-world-sdk-ts");
+        case "cli":
+            return path.join(projectRoot, "cli");
+        case "repo":
+            return projectRoot;
+        case "ws":
+            return path.join(projectRoot, "server/service/api_ws/volume/app");
+        case "auth":
+            return path.join(projectRoot, "server/service/api_rest_auth/volume/app");
+        case "asset":
+            return path.join(projectRoot, "server/service/api_rest_asset/volume/app");
+        case "inference":
+            return path.join(projectRoot, "server/service/api_rest_inference/volume/app");
+        default:
+            return null;
+    }
+}

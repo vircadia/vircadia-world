@@ -1,4 +1,4 @@
-import type { ServiceDefinition } from "./service.registry";
+import { type ServiceDefinition, getServicePath } from "./service.registry";
 import { Logger, runShellCommand } from "./utils";
 import path from "path";
 
@@ -37,7 +37,7 @@ export class DependencyActionHandler {
     }
 
     private static async install(service: ServiceDefinition) {
-        const cwd = this.getServicePath(service);
+        const cwd = getServicePath(service);
         if (cwd) {
             await runShellCommand(["bun", "install"], cwd);
         } else {
@@ -46,7 +46,7 @@ export class DependencyActionHandler {
     }
 
     private static async uninstall(service: ServiceDefinition) {
-         const cwd = this.getServicePath(service);
+         const cwd = getServicePath(service);
          if (cwd) {
              const nodeModules = path.join(cwd, "node_modules");
              await runShellCommand(["rm", "-rf", nodeModules], cwd);
@@ -57,7 +57,7 @@ export class DependencyActionHandler {
     private static async build(service: ServiceDefinition) {
         if (service.name === "repo") return;
 
-        const cwd = this.getServicePath(service);
+        const cwd = getServicePath(service);
         if (cwd) {
              // Check if build script exists?
              // Just try running bun run build
@@ -70,7 +70,7 @@ export class DependencyActionHandler {
     }
 
     private static async dev(service: ServiceDefinition, options: any) {
-        const cwd = this.getServicePath(service);
+        const cwd = getServicePath(service);
         if (cwd) {
             const args = ["bun", "run", "dev"];
             const env: Record<string, string> = {};
@@ -92,27 +92,5 @@ export class DependencyActionHandler {
             await runShellCommand(args, cwd, env);
         }
     }
-
-    private static getServicePath(service: ServiceDefinition): string | null {
-        // Map service names to paths
-        const projectRoot = path.join(import.meta.dir, "../.."); 
-        
-        switch (service.name) {
-            case "client":
-                return path.join(projectRoot, "client/web_babylon_js");
-            case "sdk":
-                return path.join(projectRoot, "sdk/vircadia-world-sdk-ts");
-            case "cli":
-                return path.join(projectRoot, "cli");
-            case "repo":
-                return projectRoot;
-            default:
-                // For API services, if they have local code:
-                if (service.category === "api") {
-                    // e.g. path.join(projectRoot, "server/...")
-                    return null; // Assume docker only for now unless specific path known
-                }
-                return null;
-        }
-    }
 }
+

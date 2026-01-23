@@ -1,6 +1,7 @@
 import { Server_CLI } from "./common.modules";
-import type { ServiceDefinition } from "./service.registry";
-import { Logger } from "./utils";
+import { type ServiceDefinition, getServicePath } from "./service.registry";
+import { Logger, runShellCommand } from "./utils";
+import path from "path";
 
 export class ContainerActionHandler {
     static async handle(action: string, services: ServiceDefinition[], options: any) {
@@ -33,7 +34,7 @@ export class ContainerActionHandler {
                 await this.restart(containerNames, options);
                 break;
             case "clean":
-                await this.clean(containerNames, options);
+                await this.clean(containers, options);
                 break;
             case "health":
                 await this.health(containerNames, options);
@@ -128,10 +129,26 @@ export class ContainerActionHandler {
         Logger.success("Containers restarted successfully.");
     }
 
-    private static async clean(containers: string[], options: any) {
+    private static async clean(services: ServiceDefinition[], options: any) {
+        const containers = services.map(s => s.containerName!).filter(Boolean);
         Logger.info(`Cleaning containers and volumes: ${containers.join(", ")}...`);
         // Stop and remove with volumes
         await Server_CLI.runServerDockerCommand({ args: ["rm", "-s", "-v", "--force", ...containers] });
+
+        // Also clean local build artifacts (dist folders)
+        for (const service of services) {
+            const cwd = getServicePath(service);
+            if (cwd) {
+                const distPath = path.join(cwd, "dist");
+                Logger.info(`Cleaning dist folder for ${service.name} at ${distPath}`);
+                try {
+                    await runShellCommand(["rm", "-rf", distPath], cwd);
+                } catch (e) {
+                    Logger.warn(`Failed to clean dist for ${service.name}: ${e}`);
+                }
+            }
+        }
+        
         Logger.success("Cleanup completed successfully.");
     }
 

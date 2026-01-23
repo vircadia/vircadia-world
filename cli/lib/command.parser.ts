@@ -2,6 +2,7 @@ import { resolveServices } from "./service.registry";
 import { ContainerActionHandler } from "./action.handlers";
 import { DependencyActionHandler } from "./dep.handlers";
 import { DbActionHandler } from "./db.handlers";
+import { ConfigActionHandler } from "./config.handlers";
 import { Logger } from "./utils";
 
 
@@ -30,8 +31,8 @@ export class CommandParser {
 
         // Handle global independent commands
         if (target === "config") {
-            // Redirect to config handler (legacy logic for now)
-             Logger.info("Config command dispatched (not fully refactored yet)");
+             // Dispatch to config handler
+             await ConfigActionHandler.handle(action, rest, this.parseOptions(rest));
              return;
         }
         
@@ -120,6 +121,7 @@ Examples:
   bun cli core up -d
   bun cli sdk build
   bun cli db seed
+  bun cli config tls http
         `);
     }
 }

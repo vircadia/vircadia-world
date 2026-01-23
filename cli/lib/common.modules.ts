@@ -763,8 +763,6 @@ export namespace Server_CLI {
         const exitCode = await spawnedProcess.exited;
 
         const isExpectedOutput =
-            args.includes("down") ||
-            args.includes("up") ||
             (args.includes("exec") && !throwOnNonZeroExec);
         if (exitCode !== 0 && !isExpectedOutput) {
             throw new Error(

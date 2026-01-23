@@ -3,8 +3,6 @@ sidebar_label: CLI
 ---
 
 import CodeBlock from '@theme/CodeBlock';
-
-import packageJson from '!!raw-loader!./package.json';
 import cliConfigTs from '!!raw-loader!./vircadia.cli.config.ts';
 
 # CLI
@@ -19,271 +17,103 @@ The Vircadia World CLI provides a set of commands to manage the Vircadia World's
 
 ## Quick Start
 
+Follow these steps to install dependencies, build modules, and start the services.
+
+### 1. Install Dependencies
+
+Install all project dependencies (dependencies are shared across workspaces).
+
 ```bash
-bun run project:init
+bun run cli all install
 ```
 
-Be sure to accept the default values for the configuration.
+### 2. Build Modules
 
-Then test your deployment by running the following command:
+Build the SDK (and other modules). This is critical as API services depend on the SDK.
 
 ```bash
-bun run server:health-all
+bun run cli sdk build
 ```
 
-Then run the test client in a new tab:
+Optionally, you can build all buildable modules (SDK, Client):
 
 ```bash
-bun run dev:client:web_babylon_js
+bun run cli all build
 ```
 
-You can also run the client in a second tab to test the syncing of the state between the two clients.
+### 3. Start & Build Containers
 
-### Resetting the World
-
-To reset the world, run the following command, only resetting the database:
+Start the core services (Postgres, API services) and build their containers.
 
 ```bash
-bun run server:postgres:reset
+bun run cli core up --build -d
 ```
 
-If you need to do a full reset, you can run the following command, which will rebuild all the services and reset the database:
+### 4. Setup Database
+
+Once the database container is healthy, run migrations and seed the database.
 
 ```bash
-bun run server:rebuild-all
+# Check health (optional)
+bun run cli core health
+
+# Run migrations
+bun run cli db migrate
+
+# Seed database with initial data
+bun run cli db seed
+```
+
+### 5. Start Client
+
+Start the web client in development mode.
+
+```bash
+bun run cli client dev
 ```
 
 ## Available Commands
 
-:::danger
+The CLI supports various commands for managing dependencies, containers, and the database.
 
-Currently, there are no warnings about the destructiveness of some of these commands, thus you should understand what you are doing before running them.
+### General Syntax
 
-:::
+```bash
+bun run cli <target> <action> [flags]
+```
 
-### Project Commands
+### Container Commands
 
-{(() => {
-  const pkg = JSON.parse(packageJson);
-  const commands = Object.entries(pkg.scripts)
-    .filter(([key]) => key.startsWith('project:'))
-    .map(([key, value]) => ({ key, value }));
-  
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Command</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        {commands.map(({key, value}) => (
-          <tr key={key}>
-            <td><code>bun run {key}</code></td>
-            <td>{value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-})()}
+| Command | Description |
+|---|---|
+| `bun run cli core up -d` | Start core services (Postgres + APIs) detached |
+| `bun run cli core up --build -d` | Build and start core services |
+| `bun run cli all down` | Stop and remove all containers |
+| `bun run cli core restart` | Restart core services |
+| `bun run cli core logs --follow` | View logs for core services |
+| `bun run cli core health` | Check health of core services |
+| `bun run cli all clean` | Stop and remove all containers and volumes |
 
-### Install Commands
+### Dependency Commands
 
-{(() => {
-  const pkg = JSON.parse(packageJson);
-  const commands = Object.entries(pkg.scripts)
-    .filter(([key]) => key.startsWith('install:'))
-    .map(([key, value]) => ({ key, value }));
-  
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Command</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        {commands.map(({key, value}) => (
-          <tr key={key}>
-            <td><code>bun run {key}</code></td>
-            <td>{value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-})()}
+| Command | Description |
+|---|---|
+| `bun run cli all install` | Install dependencies for all workspaces |
+| `bun run cli sdk build` | Build the TypeScript SDK |
+| `bun run cli client build` | Build the Web Babylon.js client |
+| `bun run cli all build` | Build all modules |
+| `bun run cli client dev` | Start client development server |
 
-### Dev Commands
+### Database Commands
 
-{(() => {
-  const pkg = JSON.parse(packageJson);
-  const commands = Object.entries(pkg.scripts)
-    .filter(([key]) => key.startsWith('dev:'))
-    .map(([key, value]) => ({ key, value }));
-  
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Command</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        {commands.map(({key, value}) => (
-          <tr key={key}>
-            <td><code>bun run {key}</code></td>
-            <td>{value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-})()}
-
-### Test Commands
-
-{(() => {
-  const pkg = JSON.parse(packageJson);
-  const commands = Object.entries(pkg.scripts)
-    .filter(([key]) => key.startsWith('test:'))
-    .map(([key, value]) => ({ key, value }));
-  
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Command</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        {commands.map(({key, value}) => (
-          <tr key={key}>
-            <td><code>bun run {key}</code></td>
-            <td>{value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-})()}
-
-### Server Commands
-
-{(() => {
-  const pkg = JSON.parse(packageJson);
-  const commands = Object.entries(pkg.scripts)
-    .filter(([key]) => key.startsWith('server:') && !key.startsWith('server:postgres:'))
-    .map(([key, value]) => ({ key, value }));
-  
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Command</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        {commands.map(({key, value}) => (
-          <tr key={key}>
-            <td><code>bun run {key}</code></td>
-            <td>{value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-})()}
-
-### Server Postgres Commands
-
-{(() => {
-  const pkg = JSON.parse(packageJson);
-  const commands = Object.entries(pkg.scripts)
-    .filter(([key]) => key.startsWith('server:postgres:'))
-    .map(([key, value]) => ({ key, value }));
-  
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Command</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        {commands.map(({key, value}) => (
-          <tr key={key}>
-            <td><code>bun run {key}</code></td>
-            <td>{value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-})()}
-
-### Clean Commands
-
-{(() => {
-  const pkg = JSON.parse(packageJson);
-  const commands = Object.entries(pkg.scripts)
-    .filter(([key]) => key.startsWith('clean:'))
-    .map(([key, value]) => ({ key, value }));
-  
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Command</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        {commands.map(({key, value}) => (
-          <tr key={key}>
-            <td><code>bun run {key}</code></td>
-            <td>{value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-})()}
-
-### Build Commands
-
-{(() => {
-  const pkg = JSON.parse(packageJson);
-  const commands = Object.entries(pkg.scripts)
-    .filter(([key]) => key.startsWith('build:'))
-    .map(([key, value]) => ({ key, value }));
-  
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Command</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        {commands.map(({key, value}) => (
-          <tr key={key}>
-            <td><code>bun run {key}</code></td>
-            <td>{value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-})()}
+| Command | Description |
+|---|---|
+| `bun run cli db migrate` | Run database migrations |
+| `bun run cli db seed` | Seed database with initial data |
+| `bun run cli db backup` | Backup the database |
+| `bun run cli db restore` | Restore the database |
+| `bun run cli db wipe` | Wipe the database |
+| `bun run cli db token` | Generate an admin token |
 
 ## Configuration
 

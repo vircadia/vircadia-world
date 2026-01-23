@@ -55,6 +55,8 @@ export class DependencyActionHandler {
     }
 
     private static async build(service: ServiceDefinition) {
+        if (service.name === "repo") return;
+
         const cwd = this.getServicePath(service);
         if (cwd) {
              // Check if build script exists?

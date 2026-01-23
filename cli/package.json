@@ -14,7 +14,7 @@
         "clean": "bun run cli all clean",
         "clean:deps": "bun run cli all uninstall",
         "install": "bun run cli all install",
-        "build": "bun run cli all build",
+        "build": "echo 'CLI does not require a build step'",
         "dev": "bun run cli client dev",
         "dev:local": "bun run cli client dev --local",
         "db:migrate": "bun run cli db migrate",

@@ -6,6 +6,7 @@ import { ConfigActionHandler } from "./config.handlers";
 import { Logger } from "./utils";
 import { InitActionHandler } from "./init.handlers";
 
+import { DevActionHandler } from "./dev.handlers";
 
 export class CommandParser {
     static async parse(args: string[]) {
@@ -20,7 +21,7 @@ export class CommandParser {
         
         const meaningfulArgs = args.slice(2);
         
-        if (meaningfulArgs.length < 2 && !meaningfulArgs.includes("config") && !meaningfulArgs.includes("init")) {
+        if (meaningfulArgs.length < 2 && !meaningfulArgs.includes("config") && !meaningfulArgs.includes("init") && !meaningfulArgs.includes("dev")) {
             // Check if it's a help command or no args
              if (meaningfulArgs.includes("--help") || meaningfulArgs.includes("-h") || meaningfulArgs.length === 0) {
                  this.showHelp();
@@ -40,6 +41,24 @@ export class CommandParser {
         if (target === "init") {
              // Redirect to init handler
              await InitActionHandler.handle(this.parseOptions(rest));
+             return;
+        }
+
+        if (target === "dev") {
+             // Redirect to dev handler
+             // 'dev' might be the target, and action might be options or subcommand? 
+             // Pattern: bun cli dev [options]
+             // meaningfulArgs would be ["dev", "--local", ...]
+             // So rest would be ["--local", ...]
+             // But parseOptions expects array.
+             
+             // Wait, if target is "dev", "action" variable currently holds the second arg which might be "--local" or just empty if none?
+             // meaningfulArgs = ["dev"] -> target="dev", action=undefined
+             // meaningfulArgs = ["dev", "--local"] -> target="dev", action="--local"
+             
+             // We need to parse options from everything after "dev".
+             const devOptionsArgs = meaningfulArgs.slice(1);
+             await DevActionHandler.handle(this.parseOptions(devOptionsArgs));
              return;
         }
 

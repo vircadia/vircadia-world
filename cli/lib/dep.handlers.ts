@@ -1,4 +1,6 @@
-import { type ServiceDefinition, getServicePath } from "./service.registry";
+import { type ServiceDefinition, getServicePath, resolveServices } from "./service.registry";
+import { EnvManager } from "./common.modules";
+import { ContainerActionHandler } from "./action.handlers";
 import { Logger, runShellCommand } from "./utils";
 import path from "path";
 
@@ -74,6 +76,8 @@ export class DependencyActionHandler {
         if (cwd) {
             const args = ["bun", "run", "dev"];
             const env: Record<string, string> = {};
+            
+            let cleanup: (() => Promise<void>) | undefined;
 
             if (options.local && service.name === "client") {
                 // Set local dev environment variables for the client
@@ -84,12 +88,56 @@ export class DependencyActionHandler {
                 env["VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_INFERENCE_URI_USING_SSL"] = "false";
                 
                 Logger.info("Configuring client for local server connection...");
+
+                // Capture original state
+                const originalTlsMode = await EnvManager.getVariable("VRCA_SERVER_SERVICE_CADDY_TLS_MODE", "cli");
+                
+                cleanup = async () => {
+                    Logger.info("\nReverting Caddy TLS mode...");
+                    if (originalTlsMode !== undefined) {
+                         await EnvManager.setVariable("VRCA_SERVER_SERVICE_CADDY_TLS_MODE", originalTlsMode, "cli");
+                    } else {
+                         await EnvManager.unsetVariable("VRCA_SERVER_SERVICE_CADDY_TLS_MODE", "cli");
+                    }
+                };
+
+                // Set Caddy to local/internal TLS mode in .env
+                await EnvManager.setVariable("VRCA_SERVER_SERVICE_CADDY_TLS_MODE", "tls internal", "cli");
+                
+                // Rebuild Caddy to apply changes
+                Logger.info("Rebuilding Caddy for local development...");
+                const caddyService = resolveServices(["caddy"]);
+                if (caddyService.length > 0) {
+                     await ContainerActionHandler.handle("rebuild", caddyService, options);
+                }
+
             } else if (options.local) {
                 // Generic local mode for other services if needed
                 args.push("--", "--mode", "local");
             }
             
-            await runShellCommand(args, cwd, env);
+            // Keep the parent process alive on SIGINT so we can cleanup, 
+            // but let the child process receive the signal naturally (as it inherits stdio).
+            const sigHandler = () => {
+                // We do nothing here, just preventing default exit.
+                // The child process will exit, causing runShellCommand to return/throw.
+            };
+            
+            if (cleanup) {
+                process.on("SIGINT", sigHandler);
+            }
+
+            try {
+                await runShellCommand(args, cwd, env);
+            } catch (error) {
+                // Ignore exit errors from SIGINT
+            } finally {
+                if (cleanup) {
+                    process.off("SIGINT", sigHandler);
+                    await cleanup();
+                    process.exit(0);
+                }
+            }
         }
     }
 }

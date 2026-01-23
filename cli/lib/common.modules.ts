@@ -578,7 +578,7 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_CADDY_EMAIL:
                 serverConfiguration.VRCA_SERVER_SERVICE_CADDY_EMAIL,
             VRCA_SERVER_SERVICE_CADDY_TLS_MODE:
-                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_MODE,
+                process.env.VRCA_SERVER_SERVICE_CADDY_TLS_MODE ?? serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_MODE,
 
 
             // API WS Manager

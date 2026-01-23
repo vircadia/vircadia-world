@@ -4,6 +4,7 @@ import { DependencyActionHandler } from "./dep.handlers";
 import { DbActionHandler } from "./db.handlers";
 import { ConfigActionHandler } from "./config.handlers";
 import { Logger } from "./utils";
+import { InitActionHandler } from "./init.handlers";
 
 
 export class CommandParser {
@@ -38,7 +39,7 @@ export class CommandParser {
         
         if (target === "init") {
              // Redirect to init handler
-             Logger.info("Init command dispatched");
+             await InitActionHandler.handle(this.parseOptions(rest));
              return;
         }
 

@@ -563,8 +563,13 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS:
                 serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS.toString(),
             VRCA_SERVER_SERVICE_CADDY_DOMAIN:
-                (serverConfiguration.VRCA_SERVER_DEFAULT_HOST === "localhost" ||
-                 serverConfiguration.VRCA_SERVER_DEFAULT_HOST === "127.0.0.1") &&
+                ((serverConfiguration.VRCA_SERVER_DEFAULT_HOST === "localhost" ||
+                    serverConfiguration.VRCA_SERVER_DEFAULT_HOST ===
+                        "127.0.0.1") ||
+                    serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN ===
+                        "localhost" ||
+                    serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN ===
+                        "127.0.0.1") &&
                 !serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN.startsWith(
                     "http",
                 )

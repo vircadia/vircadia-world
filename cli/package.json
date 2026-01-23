@@ -23,7 +23,7 @@
         "db:restore": "bun run cli db restore",
         "db:token": "bun run cli db token",
         "config": "bun run cli config",
-        "test": "bun run cli test"
+        "test": "bun test"
     },
     "dependencies": {
         "@babylonjs/core": "catalog:babylon",

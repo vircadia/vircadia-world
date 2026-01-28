@@ -773,9 +773,11 @@ export namespace Server_CLI {
         const isExpectedOutput =
             (args.includes("exec") && !throwOnNonZeroExec);
         if (exitCode !== 0 && !isExpectedOutput) {
-            throw new Error(
+            const error = new Error(
                 `SERVER Docker command failed with exit code ${exitCode}.\nStdout: ${stdout}\nStderr: ${stderr}`,
             );
+            (error as any).exitCode = exitCode;
+            throw error;
         }
     }
 

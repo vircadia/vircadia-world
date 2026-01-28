@@ -39,13 +39,28 @@ export class DevActionHandler {
 
         // Capture original state
         const originalTlsMode = await EnvManager.getVariable("VRCA_SERVER_SERVICE_CADDY_TLS_MODE", "cli");
+        const originalDefaultHost = await EnvManager.getVariable("VRCA_SERVER_DEFAULT_HOST", "cli");
+        const originalCaddyDomain = await EnvManager.getVariable("VRCA_SERVER_SERVICE_CADDY_DOMAIN", "cli");
         
         const cleanup = async () => {
-            Logger.info("\nReverting Caddy TLS mode...");
+            Logger.info("\nReverting local development configuration...");
+            // Revert TLS mode
             if (originalTlsMode !== undefined) {
                     await EnvManager.setVariable("VRCA_SERVER_SERVICE_CADDY_TLS_MODE", originalTlsMode, "cli");
             } else {
                     await EnvManager.unsetVariable("VRCA_SERVER_SERVICE_CADDY_TLS_MODE", "cli");
+            }
+            // Revert default host
+            if (originalDefaultHost !== undefined) {
+                    await EnvManager.setVariable("VRCA_SERVER_DEFAULT_HOST", originalDefaultHost, "cli");
+            } else {
+                    await EnvManager.unsetVariable("VRCA_SERVER_DEFAULT_HOST", "cli");
+            }
+            // Revert Caddy domain
+            if (originalCaddyDomain !== undefined) {
+                    await EnvManager.setVariable("VRCA_SERVER_SERVICE_CADDY_DOMAIN", originalCaddyDomain, "cli");
+            } else {
+                    await EnvManager.unsetVariable("VRCA_SERVER_SERVICE_CADDY_DOMAIN", "cli");
             }
             // We don't necessarily need to rebuild caddy on exit, just reset the var.
             // Next time it starts or rebuilds it will pick it up. 
@@ -53,7 +68,10 @@ export class DevActionHandler {
             // For speed, let's skip rebuild on exit for now, strictly revert the config.
         };
 
-        // Set Caddy to local/internal TLS mode in .env
+        // Set environment for local development
+        // This ensures Caddy serves HTTP without redirect (prevents CORS preflight failures)
+        await EnvManager.setVariable("VRCA_SERVER_DEFAULT_HOST", "localhost", "cli");
+        await EnvManager.setVariable("VRCA_SERVER_SERVICE_CADDY_DOMAIN", "http://localhost, http://127.0.0.1", "cli");
         await EnvManager.setVariable("VRCA_SERVER_SERVICE_CADDY_TLS_MODE", "tls internal", "cli");
         
         // Rebuild Caddy to apply changes

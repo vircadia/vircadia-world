@@ -563,7 +563,9 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS:
                 serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS.toString(),
             VRCA_SERVER_SERVICE_CADDY_DOMAIN:
-                ((serverConfiguration.VRCA_SERVER_DEFAULT_HOST === "localhost" ||
+                // Check process.env first for runtime overrides (e.g., from dev:local)
+                process.env.VRCA_SERVER_SERVICE_CADDY_DOMAIN ??
+                (((serverConfiguration.VRCA_SERVER_DEFAULT_HOST === "localhost" ||
                     serverConfiguration.VRCA_SERVER_DEFAULT_HOST ===
                         "127.0.0.1") ||
                     serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN ===
@@ -574,11 +576,12 @@ export namespace Server_CLI {
                     "http",
                 )
                     ? `http://localhost, http://127.0.0.1`
-                    : serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN,
+                    : serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN),
             VRCA_SERVER_SERVICE_CADDY_EMAIL:
                 serverConfiguration.VRCA_SERVER_SERVICE_CADDY_EMAIL,
             VRCA_SERVER_SERVICE_CADDY_TLS_MODE:
                 process.env.VRCA_SERVER_SERVICE_CADDY_TLS_MODE ?? serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_MODE,
+
 
 
             // API WS Manager

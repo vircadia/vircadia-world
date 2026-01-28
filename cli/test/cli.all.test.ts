@@ -28,12 +28,18 @@ mock.module("../lib/utils", () => {
 // We also mock the Server_CLI from common.modules to prevent actual Docker calls
 const mockRunServerDockerCommand = mock(async (options: any) => Promise.resolve());
 const mockCheckContainer = mock(async (name: string) => Promise.resolve());
+const mockMigrate = mock(async () => Promise.resolve(true));
+const mockMarkDatabaseAsReady = mock(async () => Promise.resolve());
+const mockSeedSql = mock(async () => Promise.resolve());
 
 mock.module("../lib/common.modules", () => {
     return {
         Server_CLI: {
             runServerDockerCommand: mockRunServerDockerCommand,
-            checkContainer: mockCheckContainer
+            checkContainer: mockCheckContainer,
+            migrate: mockMigrate,
+            markDatabaseAsReady: mockMarkDatabaseAsReady,
+            seedSql: mockSeedSql
         }
     };
 });
@@ -53,6 +59,9 @@ describe("CLI Test Suite", () => {
         mockRunShellCommand.mockClear();
         mockRunServerDockerCommand.mockClear();
         mockCheckContainer.mockClear();
+        mockMigrate.mockClear();
+        mockMarkDatabaseAsReady.mockClear();
+        mockSeedSql.mockClear();
         mockLogger.info.mockClear();
         mockLogger.error.mockClear();
         mockLogger.warn.mockClear();
@@ -204,29 +213,32 @@ describe("CLI Test Suite", () => {
             expect(mockLogger.warn).toHaveBeenCalledWith("No container services selected for this action.");
         });
 
-        it("should handle 'rebuild' action", async () => {
-            // Rebuild calls down then up
-            const spyDown = spyOn(ContainerActionHandler as any, "down"); // Private method spy might fail in TS if checking types strict
-            const spyUp = spyOn(ContainerActionHandler as any, "up");
-            
-            // We can only easily spy on the public handle, 
-            // but internally it calls private static methods.
-            // Spying on private static methods is tricky. 
-            // We can verify the side effects (Docker calls).
+        it("should handle 'rebuild' action for postgres (includes migration)", async () => {
+            // Rebuild for postgres: down, start postgres, wait for ready, migrate, mark ready
+            // Since postgres is included, it does special handling:
+            // 1. stop containers
+            // 2. start postgres only with build/force-recreate
+            // 3. wait for postgres ready (exec pg_isready) - multiple retries possible
+            // 4. migrate
+            // 5. markDatabaseAsReady
+            // No remaining containers in this test since we only have postgres
             
             await ContainerActionHandler.handle("rebuild", mockServices, {});
             
-            // Should call stop, then up with build flags
-            expect(mockRunServerDockerCommand).toHaveBeenCalledTimes(2); 
+            // Should have at least 2 docker calls: stop and up for postgres
+            expect(mockRunServerDockerCommand).toHaveBeenCalled();
             // 1st call: stop
             expect(mockRunServerDockerCommand.mock.calls[0][0].args[0]).toBe("stop");
-            // 2nd call: up -d --build --force-recreate
+            // 2nd call: up -d --build --force-recreate vircadia_world_postgres
             const upArgs = mockRunServerDockerCommand.mock.calls[1][0].args;
             expect(upArgs).toContain("up");
             expect(upArgs).toContain("--build");
             expect(upArgs).toContain("--force-recreate");
+            expect(upArgs).toContain("vircadia_world_postgres");
             
-            // Restore? It's fine since we are just inspecting calls
+            // Should have called migrate and markDatabaseAsReady
+            expect(mockMigrate).toHaveBeenCalled();
+            expect(mockMarkDatabaseAsReady).toHaveBeenCalled();
         });
 
         it("should handle 'clean' action", async () => {

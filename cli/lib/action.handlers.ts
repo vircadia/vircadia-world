@@ -174,7 +174,70 @@ export class ContainerActionHandler {
     private static async rebuild(containers: string[], options: any) {
         Logger.info(`Rebuilding ${containers.join(", ")}...`);
         await this.down(containers, options);
-        await this.up(containers, { ...options, build: true, forceRecreate: true });
+        
+        // Check if postgres is included in the rebuild
+        const postgresContainerName = "vircadia_world_postgres";
+        const includesPostgres = containers.includes(postgresContainerName);
+        
+        if (includesPostgres) {
+            // Special handling for postgres: start it first, run migrations, then start others
+            Logger.info("Starting PostgreSQL first...");
+            await Server_CLI.runServerDockerCommand({ 
+                args: ["up", "-d", "--build", "--force-recreate", postgresContainerName] 
+            });
+            
+            // Wait for postgres to be ready (basic connectivity)
+            Logger.info("Waiting for PostgreSQL to accept connections...");
+            await this.waitForPostgresReady();
+            
+            // Run migrations to set up the database
+            Logger.info("Running database migrations...");
+            await Server_CLI.migrate();
+            
+            // Mark database as ready so healthcheck passes
+            Logger.info("Marking database as ready...");
+            await Server_CLI.markDatabaseAsReady();
+            
+            // Now start the remaining containers
+            const remainingContainers = containers.filter(c => c !== postgresContainerName);
+            if (remainingContainers.length > 0) {
+                Logger.info(`Starting remaining containers: ${remainingContainers.join(", ")}...`);
+                await this.up(remainingContainers, { ...options, build: true, forceRecreate: true });
+            }
+        } else {
+            // Normal rebuild for non-postgres containers
+            await this.up(containers, { ...options, build: true, forceRecreate: true });
+        }
+        
         Logger.success("Rebuild completed successfully.");
+    }
+
+    /**
+     * Wait for postgres to accept connections (basic pg_isready check)
+     */
+    private static async waitForPostgresReady(
+        maxRetries: number = 30,
+        intervalMs: number = 2000
+    ): Promise<void> {
+        for (let i = 0; i < maxRetries; i++) {
+            try {
+                await Server_CLI.runServerDockerCommand({
+                    args: [
+                        "exec", 
+                        "vircadia_world_postgres", 
+                        "pg_isready", 
+                        "-U", 
+                        "postgres"
+                    ],
+                    throwOnNonZeroExec: true
+                });
+                Logger.success("PostgreSQL is ready!");
+                return;
+            } catch (error) {
+                Logger.debug(`Waiting for PostgreSQL... (${i + 1}/${maxRetries})`);
+                await new Promise(resolve => setTimeout(resolve, intervalMs));
+            }
+        }
+        throw new Error("PostgreSQL failed to become ready within timeout");
     }
 }

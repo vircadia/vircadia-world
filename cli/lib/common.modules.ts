@@ -2,8 +2,6 @@ import { existsSync, mkdirSync, statSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path, { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { input, Separator, select } from "@inquirer/prompts";
-import { $ } from "bun";
 import { sign } from "jsonwebtoken";
 import { type Browser, chromium, type Page } from "playwright";
 import { clientBrowserConfiguration } from "../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";

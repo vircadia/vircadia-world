@@ -7,6 +7,7 @@ import { Logger } from "./utils";
 import { InitActionHandler } from "./init.handlers";
 
 import { DevActionHandler } from "./dev.handlers";
+import { DeployActionHandler } from "./deploy.handlers";
 
 export class CommandParser {
     static async parse(args: string[]) {
@@ -59,6 +60,13 @@ export class CommandParser {
              // We need to parse options from everything after "dev".
              const devOptionsArgs = meaningfulArgs.slice(1);
              await DevActionHandler.handle(this.parseOptions(devOptionsArgs));
+             return;
+        }
+
+        if (target === "deploy") {
+             // Handle deploy command
+             // options can come from rest if CLI args used
+             await DeployActionHandler.handle(this.parseOptions(rest));
              return;
         }
 
@@ -142,6 +150,9 @@ Examples:
   bun cli sdk build
   bun cli db seed
   bun cli config tls http
+  bun cli deploy (interactive)
+  bun cli deploy --local
+  bun cli deploy --prod --domain example.com
         `);
     }
 }

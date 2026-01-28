@@ -12,7 +12,11 @@ import { Logger } from "./lib/utils";
 async function main() {
     try {
         await CommandParser.parse(process.argv);
-    } catch (error) {
+    } catch (error: any) {
+        if (error.exitCode === 130) {
+            // User cancelled
+            process.exit(0);
+        }
         Logger.error(`CLI Error: ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);
     }

@@ -32,8 +32,12 @@ export class DependencyActionHandler {
                         // Ignore unknown actions for dependencies
                         break;
                 }
-            } catch (error) {
-                Logger.error(`Failed to ${action} ${service.name}: ${error}`);
+            } catch (error: any) {
+                if (error.exitCode === 130) {
+                    Logger.info(`${action} for ${service.name} cancelled.`);
+                } else {
+                    Logger.error(`Failed to ${action} ${service.name}: ${error}`);
+                }
             }
         }
     }

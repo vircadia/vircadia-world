@@ -75,6 +75,8 @@ export async function runShellCommand(command: string[], cwd: string = process.c
     const exitCode = await proc.exited;
 
     if (exitCode !== 0) {
-        throw new Error(`Command failed with exit code ${exitCode}`);
+        const error = new Error(`Command failed with exit code ${exitCode}`);
+        (error as any).exitCode = exitCode;
+        throw error;
     }
 }

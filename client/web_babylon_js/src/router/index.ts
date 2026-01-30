@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
-import MainScene from "../components/MainScene.vue";
+import DefaultWorld from "../components/DefaultWorld.vue";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -7,7 +7,7 @@ const router = createRouter({
     {
       path: "/:pathMatch(.*)*",
       name: "main",
-      component: MainScene,
+      component: DefaultWorld,
     },
   ],
 });

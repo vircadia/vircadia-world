@@ -166,7 +166,7 @@
                                                             :mouse-lock-camera-rotate-toggle="!!(avatarRef?.keyState?.mouseLockCameraRotate)"
                                                             :mouse-lock-camera-avatar-rotate-toggle="!!(avatarRef?.keyState?.mouseLockCameraAvatarRotate)"
                                                             :override-mouse-lock-camera-avatar-rotate="!!(avatarRef?.keyState?.turnLeft || avatarRef?.keyState?.turnRight)"
-                                                            :snap-strategy="'vertical-only'" :debug="cameraDebugOpen" />
+                                                            :snap-strategy="'disabled'" :debug="cameraDebugOpen" />
                                                         <!-- Non-visual animation loaders now slotted under model component -->
                                                         <BabylonMyAvatarAnimation v-for="anim in animations"
                                                             v-if="targetSkeleton" :key="anim.fileName"
@@ -577,5 +577,6 @@ defineExpose({
     avatarRef,
     otherAvatarsRef,
     toggleInspector,
+    showWebRTCControls,
 });
 </script>

@@ -50,7 +50,7 @@ const props = defineProps({
     mouseLockCameraAvatarRotateToggle: { type: Boolean, required: true },
     overrideMouseLockCameraAvatarRotate: { type: Boolean, required: true },
     // Snap Preference
-    snapStrategy: { type: String as () => "vertical-first" | "horizontal-first" | "vertical-only", required: false, default: "vertical-only" },
+    snapStrategy: { type: String as () => "vertical-first" | "horizontal-first" | "vertical-only" | "disabled", required: false, default: "vertical-only" },
     debug: { type: Boolean, required: false, default: false },
 });
 
@@ -146,7 +146,9 @@ function generateProbeGrid(alpha: number, beta: number, radius: number) {
         cornerCandidates.push({ alpha: alpha - arcStep, beta: safeBetaUp, radius });
     }
 
-    if (props.snapStrategy === "vertical-only") {
+    if (props.snapStrategy === "disabled") {
+        // No additional candidates - just use ideal position
+    } else if (props.snapStrategy === "vertical-only") {
         candidates.push(...verticalCandidates);
         // implicit: no horizontal or corner candidates
     } else if (props.snapStrategy === "vertical-first") {
@@ -238,6 +240,28 @@ function setupCamera(): void {
         if (!camera.value || !props.avatarNode) return;
         const dt = props.scene.getEngine().getDeltaTime() / 1000;
 
+        // When snap strategy is disabled, use vanilla ArcRotateCamera behavior
+        // Only apply FOV smoothing and avatar rotation - no position overrides
+        if (props.snapStrategy === "disabled") {
+            // FOV Smoothing
+            const k = clamp(props.fovLerpSpeed, 0.1, 30);
+            const ft = 1 - Math.exp(-k * dt);
+            const targetDelta = clamp(Math.abs(props.fovDelta), 0, 0.12);
+            fovSmoothed.value = fovSmoothed.value + (targetDelta - fovSmoothed.value) * ft;
+            camera.value.fov = clamp(baseFov + fovSmoothed.value, 0.1, Math.PI - 0.1);
+
+            // Avatar Rotation
+            if (!props.mouseLockCameraAvatarRotateToggle || props.overrideMouseLockCameraAvatarRotate) return;
+            const lookDir = props.avatarNode.position.subtract(camera.value.position).normalize();
+            lookDir.y = 0;
+            if (lookDir.lengthSquared() > 1e-6) {
+                const yaw = Math.atan2(lookDir.x, lookDir.z);
+                props.avatarNode.rotationQuaternion = Quaternion.FromEulerAngles(0, yaw, 0);
+                props.avatarNode.computeWorldMatrix(true);
+            }
+            return;
+        }
+
         // 1. Capture User Input (Delta)
         // The camera may have been moved by the user since the last frame
         // But it was ALSO potentially moved by our collision logic last frame.
@@ -280,7 +304,7 @@ function setupCamera(): void {
 
         const candidates = generateProbeGrid(idealState.value.alpha, idealState.value.beta, idealState.value.radius);
         let bestCandidate = candidates[0]; // Default to ideal
-        let bestPos = null;
+        let foundPos: Vector3 | null = null;
 
         if (props.debug) {
             clearDebugVisuals();
@@ -314,14 +338,14 @@ function setupCamera(): void {
             }
 
             if (!vis.hasHit) {
-                bestPos = pos;
+                foundPos = pos;
                 bestCandidate = cand;
                 break;
             }
         }
 
         // Fallback: Zoom In
-        if (!bestPos) {
+        if (!foundPos) {
             const center = candidates[0];
             const x = Math.sin(center.beta) * Math.cos(center.alpha);
             const z = Math.sin(center.beta) * Math.sin(center.alpha);
@@ -334,13 +358,15 @@ function setupCamera(): void {
             if (vis.hasHit && vis.hitPoint) {
                 const dist = vis.hitPoint.subtract(targetPos).length();
                 const safe = Math.max(0.5, dist - 0.2);
-                bestPos = targetPos.add(dir.scale(safe));
+                foundPos = targetPos.add(dir.scale(safe));
                 // We must update the candidate radius for correct alpha/beta syncing
                 bestCandidate = { ...center, radius: safe };
             } else {
-                bestPos = fullPos;
+                foundPos = fullPos;
             }
         }
+
+        const bestPos = foundPos;
 
         if (props.debug && bestPos) {
             // Draw Snapped Choice (Yellow)

@@ -21,5 +21,7 @@ defineExpose({
     otherAvatarsRef: computed(() => sceneRef.value?.otherAvatarsRef),
     // Proxy methods if needed
     toggleInspector: () => sceneRef.value?.toggleInspector(),
+    // Forward showWebRTCControls ref
+    showWebRTCControls: computed(() => sceneRef.value?.showWebRTCControls),
 });
 </script>

@@ -56,7 +56,7 @@
                                 <template #activator="{ props }">
                                     <v-badge :content="0" color="secondary" overlap location="bottom start"
                                         offset-x="10" offset-y="10" :model-value="false" class="ml-2">
-                                        <v-btn v-bind="props" icon variant="text" @click="showWebRTCControls = true">
+                                        <v-btn v-bind="props" icon variant="text" @click="openWebRTCControls">
                                             <v-icon>mdi-account-group</v-icon>
                                         </v-btn>
                                     </v-badge>
@@ -82,7 +82,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -117,7 +117,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -154,7 +154,7 @@
                                         <v-btn v-bind="props" icon variant="text" class="ml-2" @click="toggleInspector">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                                }}</v-icon>
+                                            }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -246,7 +246,6 @@ const rightDrawerTab = ref("properties");
 const perfDialOpen = ref(false);
 const moveDialOpen = ref(false);
 const worldStatsDialogOpen = ref(false);
-const showWebRTCControls = ref(false);
 const isDev = import.meta.env.DEV;
 const performanceMode = useStorage<"normal" | "low">("vrca.perf.mode", "normal");
 // Note: inspectorVisible is technically inside VircadiaScene, we can guess it or just track local toggle state if needed,
@@ -292,5 +291,12 @@ const avatarSyncMetrics = ref(null);
 function toggleInspector() {
     activeWorldRef.value?.toggleInspector?.();
     inspectorVisible.value = !inspectorVisible.value;
+}
+
+function openWebRTCControls() {
+    const webrtcRef = activeWorldRef.value?.showWebRTCControls;
+    if (webrtcRef && typeof webrtcRef === 'object' && 'value' in webrtcRef) {
+        webrtcRef.value = true;
+    }
 }
 </script>

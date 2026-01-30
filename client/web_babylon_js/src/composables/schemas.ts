@@ -20,6 +20,13 @@ export interface BabylonModelDefinition {
 export interface BabylonAnimationDefinition {
     /** Filename of the animation file (e.g. 'walk.glb') */
     fileName: string;
+    /** Optional direct URL to the animation file (bypasses asset server URL construction) */
+    fileUrl?: string;
+    slMotion?: string;
+    direction?: "forward" | "back" | "left" | "right";
+    variant?: string;
+    ignoreHipTranslation?: boolean;
+    ignoreScale?: boolean;
 }
 
 export const Vector3Schema = z.object({

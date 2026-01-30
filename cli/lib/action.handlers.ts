@@ -197,6 +197,11 @@ export class ContainerActionHandler {
             // Mark database as ready so healthcheck passes
             Logger.info("Marking database as ready...");
             await Server_CLI.markDatabaseAsReady();
+
+            // Run seeds (SQL and Assets)
+            Logger.info("Seeding database...");
+            await Server_CLI.seedSql();
+            await Server_CLI.seedAssets({});
             
             // Now start the remaining containers
             const remainingContainers = containers.filter(c => c !== postgresContainerName);

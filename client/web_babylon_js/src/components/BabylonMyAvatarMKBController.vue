@@ -123,7 +123,16 @@ const isPointerLocked = ref(false);
 
 const enablePointerLock = () => {
     const canvas = props.scene?.getEngine().getRenderingCanvas();
-    canvas?.requestPointerLock();
+    if (document.pointerLockElement === canvas) return;
+    const promise = canvas?.requestPointerLock();
+    // specific to newer browser specs where it returns a promise
+    if (promise && typeof (promise as any).catch === "function") {
+        (promise as any).catch((e: any) => {
+            // Suppress "The user has exited the lock before this request was completed"
+            if (e?.name === "SecurityError") return;
+            console.warn("Pointer lock failed:", e);
+        });
+    }
 };
 const exitPointerLock = () => {
     document.exitPointerLock();

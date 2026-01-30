@@ -39,8 +39,8 @@ export class InitActionHandler {
         // 6. Run database seeds (SQL and assets)  
         Logger.info("\n--- Step 6: Seeding Database ---");
         await Server_CLI.seedSql();
-        // Note: Asset seeding requires additional config, skipping for basic init
-        // await Server_CLI.seedAssets({ ... });
+        // Asset seeding
+        await Server_CLI.seedAssets({});
 
         // 7. Mark database as ready (sets setup_timestamp so healthcheck passes)
         Logger.info("\n--- Step 7: Marking Database as Ready ---");

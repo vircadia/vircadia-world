@@ -68,6 +68,46 @@ import { useInterval } from "@vueuse/core";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 import type { KeyState } from "./BabylonMyAvatarMKBController.vue";
 
+import anim_m_idle_1 from "@/assets/animation/babylon.avatar.animation.m.idle.1.glb?url";
+import anim_m_idle_10 from "@/assets/animation/babylon.avatar.animation.m.idle.10.glb?url";
+import anim_m_idle_2 from "@/assets/animation/babylon.avatar.animation.m.idle.2.glb?url";
+import anim_m_idle_3 from "@/assets/animation/babylon.avatar.animation.m.idle.3.glb?url";
+import anim_m_idle_4 from "@/assets/animation/babylon.avatar.animation.m.idle.4.glb?url";
+import anim_m_idle_5 from "@/assets/animation/babylon.avatar.animation.m.idle.5.glb?url";
+import anim_m_idle_6 from "@/assets/animation/babylon.avatar.animation.m.idle.6.glb?url";
+import anim_m_idle_7 from "@/assets/animation/babylon.avatar.animation.m.idle.7.glb?url";
+import anim_m_idle_8 from "@/assets/animation/babylon.avatar.animation.m.idle.8.glb?url";
+import anim_m_idle_9 from "@/assets/animation/babylon.avatar.animation.m.idle.9.glb?url";
+import anim_m_walk_1 from "@/assets/animation/babylon.avatar.animation.m.walk.1.glb?url";
+import anim_m_walk_2 from "@/assets/animation/babylon.avatar.animation.m.walk.2.glb?url";
+import anim_m_crouch_strafe_left from "@/assets/animation/babylon.avatar.animation.m.crouch_strafe_left.glb?url";
+import anim_m_crouch_strafe_right from "@/assets/animation/babylon.avatar.animation.m.crouch_strafe_right.glb?url";
+import anim_m_crouch_walk_back from "@/assets/animation/babylon.avatar.animation.m.crouch_walk_back.glb?url";
+import anim_m_crouch_walk from "@/assets/animation/babylon.avatar.animation.m.crouch_walk.glb?url";
+import anim_m_falling_idle_1 from "@/assets/animation/babylon.avatar.animation.m.falling_idle.1.glb?url";
+import anim_m_falling_idle_2 from "@/assets/animation/babylon.avatar.animation.m.falling_idle.2.glb?url";
+import anim_m_jog_back from "@/assets/animation/babylon.avatar.animation.m.jog_back.glb?url";
+import anim_m_jog from "@/assets/animation/babylon.avatar.animation.m.jog.glb?url";
+import anim_m_jump_small from "@/assets/animation/babylon.avatar.animation.m.jump_small.glb?url";
+import anim_m_jump from "@/assets/animation/babylon.avatar.animation.m.jump.glb?url";
+import anim_m_run_back from "@/assets/animation/babylon.avatar.animation.m.run_back.glb?url";
+import anim_m_run_strafe_left from "@/assets/animation/babylon.avatar.animation.m.run_strafe_left.glb?url";
+import anim_m_run_strafe_right from "@/assets/animation/babylon.avatar.animation.m.run_strafe_right.glb?url";
+import anim_m_run from "@/assets/animation/babylon.avatar.animation.m.run.glb?url";
+import anim_m_strafe_left from "@/assets/animation/babylon.avatar.animation.m.strafe_left.glb?url";
+import anim_m_strafe_right from "@/assets/animation/babylon.avatar.animation.m.strafe_right.glb?url";
+import anim_m_talking_1 from "@/assets/animation/babylon.avatar.animation.m.talking.1.glb?url";
+import anim_m_talking_2 from "@/assets/animation/babylon.avatar.animation.m.talking.2.glb?url";
+import anim_m_talking_3 from "@/assets/animation/babylon.avatar.animation.m.talking.3.glb?url";
+import anim_m_talking_4 from "@/assets/animation/babylon.avatar.animation.m.talking.4.glb?url";
+import anim_m_talking_5 from "@/assets/animation/babylon.avatar.animation.m.talking.5.glb?url";
+import anim_m_talking_6 from "@/assets/animation/babylon.avatar.animation.m.talking.6.glb?url";
+import anim_m_walk_back from "@/assets/animation/babylon.avatar.animation.m.walk_back.glb?url";
+import anim_m_walk_jump_1 from "@/assets/animation/babylon.avatar.animation.m.walk_jump.1.glb?url";
+import anim_m_walk_jump_2 from "@/assets/animation/babylon.avatar.animation.m.walk_jump.2.glb?url";
+import anim_m_walk_strafe_left from "@/assets/animation/babylon.avatar.animation.m.walk_strafe_left.glb?url";
+import anim_m_walk_strafe_right from "@/assets/animation/babylon.avatar.animation.m.walk_strafe_right.glb?url";
+
 // Debug viewers import
 import { AxesViewer, SkeletonViewer } from "@babylonjs/core/Debug";
 
@@ -117,6 +157,7 @@ const emit = defineEmits<{ ready: []; dispose: [] }>();
 export type Direction = "forward" | "back" | "left" | "right";
 export type AnimationDef = {
     fileName: string;
+    fileUrl?: string;
     slMotion?: string;
     direction?: Direction;
     variant?: string;
@@ -166,8 +207,53 @@ export type AvatarDefinition = {
     up: { x: number; y: number; z: number };
 };
 
+const localAnimations: AnimationDef[] = [
+    { fileName: "babylon.avatar.animation.m.idle.1.glb", fileUrl: anim_m_idle_1, slMotion: "stand" },
+    { fileName: "babylon.avatar.animation.m.idle.2.glb", fileUrl: anim_m_idle_2, slMotion: "stand" },
+    { fileName: "babylon.avatar.animation.m.idle.3.glb", fileUrl: anim_m_idle_3, slMotion: "stand" },
+    { fileName: "babylon.avatar.animation.m.idle.4.glb", fileUrl: anim_m_idle_4, slMotion: "stand" },
+    { fileName: "babylon.avatar.animation.m.idle.5.glb", fileUrl: anim_m_idle_5, slMotion: "stand" },
+    { fileName: "babylon.avatar.animation.m.idle.6.glb", fileUrl: anim_m_idle_6, slMotion: "stand" },
+    { fileName: "babylon.avatar.animation.m.idle.7.glb", fileUrl: anim_m_idle_7, slMotion: "stand" },
+    { fileName: "babylon.avatar.animation.m.idle.8.glb", fileUrl: anim_m_idle_8, slMotion: "stand" },
+    { fileName: "babylon.avatar.animation.m.idle.9.glb", fileUrl: anim_m_idle_9, slMotion: "stand" },
+    { fileName: "babylon.avatar.animation.m.idle.10.glb", fileUrl: anim_m_idle_10, slMotion: "stand" },
+    { fileName: "babylon.avatar.animation.m.walk.1.glb", fileUrl: anim_m_walk_1, slMotion: "walk", direction: "forward", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.walk.2.glb", fileUrl: anim_m_walk_2, slMotion: "walk", direction: "forward", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.crouch_strafe_left.glb", fileUrl: anim_m_crouch_strafe_left, slMotion: "crouchwalk", direction: "left", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.crouch_strafe_right.glb", fileUrl: anim_m_crouch_strafe_right, slMotion: "crouchwalk", direction: "right", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.crouch_walk_back.glb", fileUrl: anim_m_crouch_walk_back, slMotion: "crouchwalk", direction: "back", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.crouch_walk.glb", fileUrl: anim_m_crouch_walk, slMotion: "crouchwalk", direction: "forward", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.falling_idle.1.glb", fileUrl: anim_m_falling_idle_1, slMotion: "falling" },
+    { fileName: "babylon.avatar.animation.m.falling_idle.2.glb", fileUrl: anim_m_falling_idle_2, slMotion: "falling" },
+    { fileName: "babylon.avatar.animation.m.jog_back.glb", fileUrl: anim_m_jog_back, slMotion: "jog", direction: "back", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.jog.glb", fileUrl: anim_m_jog, slMotion: "jog", direction: "forward", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.jump_small.glb", fileUrl: anim_m_jump_small, slMotion: "jump" },
+    { fileName: "babylon.avatar.animation.m.jump.glb", fileUrl: anim_m_jump, slMotion: "jump" },
+    { fileName: "babylon.avatar.animation.m.run_back.glb", fileUrl: anim_m_run_back, slMotion: "run", direction: "back", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.run_strafe_left.glb", fileUrl: anim_m_run_strafe_left, slMotion: "run", direction: "left", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.run_strafe_right.glb", fileUrl: anim_m_run_strafe_right, slMotion: "run", direction: "right", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.run.glb", fileUrl: anim_m_run, slMotion: "run", direction: "forward", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.strafe_left.glb", fileUrl: anim_m_strafe_left, slMotion: "walk", direction: "left", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.strafe_right.glb", fileUrl: anim_m_strafe_right, slMotion: "walk", direction: "right", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.talking.1.glb", fileUrl: anim_m_talking_1, slMotion: "talk" },
+    { fileName: "babylon.avatar.animation.m.talking.2.glb", fileUrl: anim_m_talking_2, slMotion: "talk" },
+    { fileName: "babylon.avatar.animation.m.talking.3.glb", fileUrl: anim_m_talking_3, slMotion: "talk" },
+    { fileName: "babylon.avatar.animation.m.talking.4.glb", fileUrl: anim_m_talking_4, slMotion: "talk" },
+    { fileName: "babylon.avatar.animation.m.talking.5.glb", fileUrl: anim_m_talking_5, slMotion: "talk" },
+    { fileName: "babylon.avatar.animation.m.talking.6.glb", fileUrl: anim_m_talking_6, slMotion: "talk" },
+    { fileName: "babylon.avatar.animation.m.walk_back.glb", fileUrl: anim_m_walk_back, slMotion: "walk", direction: "back", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.walk_jump.1.glb", fileUrl: anim_m_walk_jump_1, slMotion: "jump" },
+    { fileName: "babylon.avatar.animation.m.walk_jump.2.glb", fileUrl: anim_m_walk_jump_2, slMotion: "jump" },
+    { fileName: "babylon.avatar.animation.m.walk_strafe_left.glb", fileUrl: anim_m_walk_strafe_left, slMotion: "walk", direction: "left", ignoreHipTranslation: true },
+    { fileName: "babylon.avatar.animation.m.walk_strafe_right.glb", fileUrl: anim_m_walk_strafe_right, slMotion: "walk", direction: "right", ignoreHipTranslation: true },
+];
+
 const effectiveAvatarDef = computed<AvatarDefinition>(() => {
-    return props.avatarDefinition as AvatarDefinition;
+    return {
+        ...props.avatarDefinition as AvatarDefinition,
+        animations: localAnimations
+    };
 });
 
 const capsuleHeight = computed(() => effectiveAvatarDef.value.capsuleHeight);

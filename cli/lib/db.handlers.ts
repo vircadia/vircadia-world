@@ -42,48 +42,45 @@ export class DbActionHandler {
 
     private static async migrate() {
         Logger.info("Running database migrations...");
-        // Invoke migration script logic
-        // For MVP refactor, assume we run a command inside the container or a local script
-        // Original CLI had logic for this.
-        await Server_CLI.runServerDockerCommand({
-             args: ["exec", "-t", "vircadia_world_postgres", "/usr/local/bin/migrate.sh"]
-        });
+        await Server_CLI.migrate();
     }
 
     private static async seed(options: any) {
-        Logger.info("Seeding database...");
-        // Seed logic
-         await Server_CLI.runServerDockerCommand({
-             args: ["exec", "-t", "vircadia_world_postgres", "/usr/local/bin/seed.sh"]
+        Logger.info("Seeding database (SQL)...");
+        await Server_CLI.seedSql();
+        Logger.info("Seeding database (Assets)...");
+        await Server_CLI.seedAssets({
+            options: {
+                syncGroup: options.syncGroup,
+            }
         });
     }
 
     private static async wipe() {
         Logger.warn("Wiping database...");
-         await Server_CLI.runServerDockerCommand({
-             args: ["exec", "-t", "vircadia_world_postgres", "/usr/local/bin/wipe.sh"]
-        });
+        await Server_CLI.wipeDatabase();
     }
 
     private static async backup() {
         Logger.info("Backing up database...");
-         await Server_CLI.runServerDockerCommand({
-             args: ["exec", "-t", "vircadia_world_postgres", "/usr/local/bin/backup.sh"]
-        });
+        await Server_CLI.backupDatabase();
     }
 
     private static async restore() {
         Logger.info("Restoring database...");
-         await Server_CLI.runServerDockerCommand({
-             args: ["exec", "-t", "vircadia_world_postgres", "/usr/local/bin/restore.sh"]
-        });
+        await Server_CLI.restoreDatabase();
     }
     
     private static async token(options: any) {
-        // Generate token logic
         Logger.info("Generating token...");
-         await Server_CLI.runServerDockerCommand({
-             args: ["exec", "-t", "vircadia_world_postgres", "/usr/local/bin/generate_token.sh"]
-        });
+        const result = await Server_CLI.generateDbSystemToken();
+        if (options.raw) {
+            console.log(result.token);
+        } else {
+            Logger.success(`Token generated successfully!`);
+            Logger.info(`Token: ${result.token}`);
+            Logger.info(`Session ID: ${result.sessionId}`);
+            Logger.info(`Agent ID: ${result.agentId}`);
+        }
     }
 }

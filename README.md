@@ -79,6 +79,20 @@ graph TB
 
 See the main [website](https://vircadia.com) for an alternate overview of the features available.
 
+## External integrations
+
+The architecture above also provides a useful boundary for external clients and services: they should integrate through the public interfaces exposed by a Vircadia World deployment rather than depending directly on internal containers or database state.
+
+When building an external integration:
+
+- treat authentication and world state as belonging to the Vircadia World deployment you are connecting to;
+- prefer the documented WebSocket/REST interface between the client and World API Manager over direct database access;
+- pin or record the Vircadia World version/commit used by the integration so behavior can be reproduced;
+- keep third-party identity, authorization, and asset licensing decisions explicit instead of assuming they are shared with Vircadia World;
+- avoid presenting compatibility with an external project as an official partnership or endorsement unless that relationship is separately established.
+
+These boundaries make integrations easier to audit and reduce coupling to implementation details that may change while the project is still pre-1.0.
+
 ## Next
 
 The `next` branch is where new updates are merged before being pushed to `master`.
